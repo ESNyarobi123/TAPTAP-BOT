@@ -125,11 +125,21 @@ module.exports = {
      * Response: { success, payment_id, message }
      */
     initiateUssdPayment: async (paymentData) => {
+        console.log('🚀 [USSD] Requesting push for Order:', paymentData.order_id);
+        console.log('📱 [USSD] Data:', {
+            phone: paymentData.phone,
+            amount: paymentData.amount,
+            provider: paymentData.provider
+        });
+
         const response = await api.post('/payment/ussd', {
             order_id: paymentData.order_id,
             phone_number: paymentData.phone,
-            amount: paymentData.amount
+            amount: paymentData.amount,
+            provider: paymentData.provider
         });
+
+        console.log('✅ [USSD] API Response:', JSON.stringify(response.data, null, 2));
         return response.data;
     },
 

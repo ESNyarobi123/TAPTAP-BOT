@@ -1057,7 +1057,8 @@ async function initiateUssdPayment(sock, from, session) {
         const result = await api.initiateUssdPayment({
             order_id: session.active_order_id,
             phone: session.ussd_phone,
-            amount: session.order_total
+            amount: session.order_total,
+            provider: session.ussd_provider
         });
 
         if (result.success) {
