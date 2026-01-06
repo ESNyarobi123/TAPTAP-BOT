@@ -671,6 +671,7 @@ async function handleTipState(sock, from, session, text) {
         if (amount !== 'skip') {
             try {
                 await api.submitTip({
+                    restaurant_id: session.restaurant_id,
                     order_id: session.active_order_id,
                     amount: parseInt(amount)
                 });

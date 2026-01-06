@@ -1,4 +1,5 @@
 const axios = require('axios');
+const https = require('https');
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const api = axios.create({
@@ -8,7 +9,10 @@ const api = axios.create({
         'Accept': 'application/json',
         'Authorization': `Bearer ${process.env.BOT_TOKEN}`
     },
-    timeout: 30000
+    timeout: 30000,
+    httpsAgent: new https.Agent({
+        rejectUnauthorized: false
+    })
 });
 
 // Add response interceptor for error handling
