@@ -165,7 +165,47 @@ module.exports = {
      * Response: { success, message }
      */
     submitTip: async (tipData) => {
-        const response = await api.post('/tip', tipData);
+        const response = await api.post('/tip', {
+            restaurant_id: tipData.restaurant_id,
+            order_id: tipData.order_id,
+            amount: tipData.amount
+        });
+        return response.data;
+    },
+
+    /**
+     * 10. Call Waiter / Request Bill
+     * POST /api/bot/call-waiter
+     * Body: { restaurant_id, table_number, request_type }
+     * Response: { success, message }
+     */
+    callWaiter: async (data) => {
+        const response = await api.post('/call-waiter', {
+            restaurant_id: data.restaurant_id,
+            table_number: data.table_number,
+            request_type: data.request_type, // Support both
+            type: data.request_type
+        });
+        return response.data;
+    },
+
+    /**
+     * 11. Get Active Order (Bill)
+     * GET /api/bot/active-order?restaurant_id=2&table_number=1
+     */
+    getActiveOrder: async (restaurantId, tableNumber) => {
+        const response = await api.get('/active-order', {
+            params: { restaurant_id: restaurantId, table_number: tableNumber }
+        });
+        return response.data;
+    },
+
+    /**
+     * 12. List Waiters
+     * GET /api/bot/restaurant/{id}/waiters
+     */
+    getWaiters: async (restaurantId) => {
+        const response = await api.get(`/restaurant/${restaurantId}/waiters`);
         return response.data;
     },
 

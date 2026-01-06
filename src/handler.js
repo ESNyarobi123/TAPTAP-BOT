@@ -152,6 +152,14 @@ async function handleMessage(sock, msg) {
                 await handleTipState(sock, from, session, text);
                 break;
 
+            case 'CALL_WAITER':
+                await handleCallWaiterState(sock, from, session, text);
+                break;
+
+            case 'WAITERS_LIST':
+                await handleWaitersListState(sock, from, session, text);
+                break;
+
             default:
                 await sendText(sock, from, 'Samahani, sijakuelewa. Andika "Hi" kuanza upya.');
                 session.state = 'START';
@@ -259,9 +267,12 @@ async function handleStartState(sock, from, session, text) {
     const greetings = ['hi', 'hello', 'mambo', 'habari', 'niaje', 'sasa', 'hujambo'];
     if (greetings.includes(text.toLowerCase())) {
         await sendText(sock, from,
-            '🍽️ *Karibu TAPTAP!*\n\n' +
-            'Mfumo wa kuagiza chakula kupitia WhatsApp.\n\n' +
-            'Andika jina la restaurant unayotaka au scan QR code iliyopo mezani.'
+            '━━━━━━━━ ✨ ━━━━━━━━\n' +
+            '👋 Karibu TAPTAP!\n' +
+            '📲 Oda chakula kupitia WhatsApp\n' +
+            '✍️ Andika jina la restaurant unayotaka\n' +
+            'au 📷 Scan QR (ipo mezani)\n' +
+            '━━━━━━━━ ✅ ━━━━━━━━'
         );
         session.state = 'SEARCH_RESTAURANT';
     } else {
@@ -343,7 +354,51 @@ async function handleHomeState(sock, from, session, text) {
         await showTrackStatus(sock, from, session);
     } else if (t === 'go_feedback' || t.includes('feedback')) {
         await showFeedbackA(sock, from, session);
+    } else if (t === 'call_waiter' || t.includes('waiter') || t.includes('mhudumu')) {
+        await showCallWaiterOptions(sock, from, session);
     } else {
+        await showHomeScreen(sock, from, session);
+    }
+}
+
+async function handleCallWaiterState(sock, from, session, text) {
+    if (text === 'call_only') {
+        await initiateCallWaiter(sock, from, session, 'call_waiter', 'Ita Mhudumu');
+    } else if (text === 'request_bill') {
+        await initiateCallWaiter(sock, from, session, 'request_bill', 'Omba Bili');
+    } else if (text === 'list_waiters') {
+        await showWaitersList(sock, from, session);
+    } else if (text === 'home') {
+        await showHomeScreen(sock, from, session);
+    } else {
+        await showCallWaiterOptions(sock, from, session);
+    }
+}
+
+async function handleWaitersListState(sock, from, session, text) {
+    if (text.startsWith('call_waiter_')) {
+        const waiterName = text.replace('call_waiter_', '');
+        await initiateCallWaiter(sock, from, session, `call_waiter_${waiterName}`, `Ita ${waiterName}`);
+    } else if (text === 'home') {
+        await showHomeScreen(sock, from, session);
+    } else {
+        await showWaitersList(sock, from, session);
+    }
+}
+
+async function initiateCallWaiter(sock, from, session, apiType, displayName) {
+    try {
+        await api.callWaiter({
+            restaurant_id: session.restaurant_id,
+            table_number: session.table_number,
+            request_type: apiType
+        });
+
+        await sendText(sock, from, `✅ Ombi la *${displayName}* limetumwa! Mhudumu anakuja hivi punde.`);
+        await showHomeScreen(sock, from, session);
+    } catch (e) {
+        console.error('Call waiter error:', e);
+        await sendText(sock, from, '❌ Samahani, tumeshindwa kutuma ombi kwa sasa. Jaribu tena baadae.');
         await showHomeScreen(sock, from, session);
     }
 }
@@ -669,15 +724,20 @@ async function handleTipState(sock, from, session, text) {
     if (text.startsWith('tip_')) {
         const amount = text.replace('tip_', '');
         if (amount !== 'skip') {
-            try {
-                await api.submitTip({
-                    restaurant_id: session.restaurant_id,
-                    order_id: session.active_order_id,
-                    amount: parseInt(amount)
-                });
-                await sendText(sock, from, `💝 Asante kwa tip ya Tsh ${amount}!`);
-            } catch (e) {
-                console.error('Tip error:', e);
+            if (!session.active_order_id) {
+                await sendText(sock, from, '⚠️ Hauwezi kutoa tip bila kuwa na oda inayoendelea.');
+            } else {
+                try {
+                    await api.submitTip({
+                        restaurant_id: session.restaurant_id,
+                        order_id: session.active_order_id,
+                        amount: parseInt(amount)
+                    });
+                    await sendText(sock, from, `💝 Asante kwa tip ya Tsh ${amount}!`);
+                } catch (e) {
+                    console.error('Tip error:', e);
+                    await sendText(sock, from, '❌ Tatizo la kutoa tip. Jaribu tena.');
+                }
             }
         }
 
@@ -698,31 +758,54 @@ async function showHomeScreen(sock, from, session) {
     const table = session.table_number || '-';
     const cartCount = session.cart.length;
 
-    await sendButtons(sock, from,
-        `🍽️ *Karibu ${name}!*\n` +
-        `📍 Meza: ${table}\n\n` +
-        `Chagua unachotaka kufanya:`,
+    await sendList(sock, from,
+        `👋Karibu ${name.replace(/\s/g, '')}(Meza${table})`,
+        'Menu',
         [
-            { id: 'go_menu', text: '🍽️ Menu' },
-            { id: 'go_cart', text: `🛒 Cart (${cartCount})` },
-            { id: 'go_payment', text: '💳 Lipa' },
-            { id: 'track_order', text: '📍 Track Order' },
-            { id: 'go_feedback', text: '📝 Maoni' }
-        ]
+            {
+                title: '🍽️MENU',
+                rows: [
+                    { id: 'go_menu', title: '🍛AgizaChakula' },
+                    { id: 'search_food', title: '🔎Tafuta' }
+                ]
+            },
+            {
+                title: '🛒ODA',
+                rows: [
+                    { id: 'go_cart', title: `📦OdaYangu(${cartCount})` },
+                    { id: 'go_payment', title: '💳Lipa' }
+                ]
+            },
+            {
+                title: '🧩HUDUMA',
+                rows: [
+                    { id: 'track_order', title: '📡Fuatilia' },
+                    { id: 'call_waiter', title: '🙋Mhudumu' },
+                    { id: 'go_feedback', title: '🗣️Maoni' }
+                ]
+            }
+        ],
+        '🐟✨'
     );
 }
 
 async function showTableSelection(sock, from, session) {
     try {
-        // Try to get tables using the bot-specific endpoint first
         const result = await api.getRestaurantTables(session.restaurant_id);
         if (result.success && result.data.length > 0) {
-            const buttons = result.data.map(t => ({
-                id: `table_${t.id}`,
-                text: `Meza ${t.name} (Watu ${t.capacity})`
-            })).slice(0, 3); // Max 3 buttons
+            let text = `━━━━━━━━ 🪑 ━━━━━━━━\n`;
+            text += `🧾 Chagua meza yako:\n`;
 
-            await sendButtons(sock, from, 'Chagua Meza yako:', buttons);
+            session.menu_options = {};
+            result.data.slice(0, 10).forEach((t, i) => {
+                const numEmoji = getNumberEmoji(i + 1);
+                text += `${numEmoji} Meza ${t.name} 👥 (Watu ${t.capacity})\n`;
+                session.menu_options[(i + 1).toString()] = `table_${t.id}`;
+            });
+
+            text += `✅ (Chagua namba)\n`;
+            text += `━━━━━━━━ ✨ ━━━━━━━━`;
+            await sendText(sock, from, text);
         } else {
             await sendText(sock, from, 'Tafadhali andika namba ya meza uliyokaa (mfano: 7):');
         }
@@ -745,13 +828,27 @@ async function showMenuHub(sock, from, session) {
         }
 
         if (session.menu_cache && session.menu_cache.length > 0) {
-            const buttons = session.menu_cache.map(c => ({
+            const rows = session.menu_cache.map(c => ({
                 id: `cat_${c.id}`,
-                text: c.name
-            })).slice(0, 2); // Max 3 buttons total (2 cats + 1 home)
+                title: `📂${c.name.replace(/\s/g, '')}`
+            }));
 
-            buttons.push({ id: 'home', text: '🏠 Home' });
-            await sendButtons(sock, from, '🍽️ *Menu*\n\nChagua kundi la chakula:', buttons);
+            const sections = [
+                {
+                    title: '🔍TAFUTA',
+                    rows: [{ id: 'search_food', title: '🔎TafutaChakula' }]
+                },
+                {
+                    title: '🍴MAKUNDI',
+                    rows: rows
+                },
+                {
+                    title: '🏠NYUMBANI',
+                    rows: [{ id: 'home', title: '🔙RudiMwanzo' }]
+                }
+            ];
+
+            await sendList(sock, from, '🍽️MENU_YETU', 'Menu', sections, '🍽️✨');
         } else {
             await sendText(sock, from, 'Samahani, menu haipatikani kwa sasa.');
             await showHomeScreen(sock, from, session);
@@ -766,11 +863,9 @@ async function showItemsList(sock, from, session, categoryId) {
     session.state = 'ITEMS_LIST';
     session.current_category = categoryId;
 
-    // Find category in cache
     const category = (session.menu_cache || []).find(c => c.id == categoryId);
 
     if (category && category.menu_items && category.menu_items.length > 0) {
-        // Flatten items for showItemDetail to find them easily
         if (!session.menu_items_cache) session.menu_items_cache = [];
         category.menu_items.forEach(item => {
             if (!session.menu_items_cache.find(i => i.id == item.id)) {
@@ -778,16 +873,27 @@ async function showItemsList(sock, from, session, categoryId) {
             }
         });
 
-        const buttons = category.menu_items.map(i => ({
+        const rows = category.menu_items.map(i => ({
             id: `item_${i.id}`,
-            text: `${i.name} - Tsh ${i.price.toLocaleString()}`
-        })).slice(0, 2); // Max 3 buttons
+            title: `🍲${i.name.replace(/\s/g, '')}`,
+            description: `${i.price.toLocaleString()}/=`
+        }));
 
-        buttons.push({ id: 'back_menu', text: '🔙 Rudi' });
-
-        await sendButtons(sock, from, `🍽️ *${category.name}*\n\nChagua chakula:`, buttons);
+        await sendList(sock, from, `🍽️${category.name.toUpperCase().replace(/\s/g, '')}`, 'Vyakula', [
+            {
+                title: '📋ORODHA',
+                rows: rows
+            },
+            {
+                title: '🏠NYUMBANI',
+                rows: [
+                    { id: 'back_menu', title: '🔙RudiMenu' },
+                    { id: 'go_cart', title: '🛒OdaYangu' }
+                ]
+            }
+        ], '✨🍴');
     } else {
-        await sendText(sock, from, 'Hakuna vyakula kwenye kundi hili.');
+        await sendText(sock, from, 'Hakuna vyakula hapa.');
         await showMenuHub(sock, from, session);
     }
 }
@@ -796,7 +902,6 @@ async function showItemDetail(sock, from, session, itemId) {
     session.state = 'ITEM_DETAIL';
     session.pending_item = itemId;
 
-    // Find item from cache
     const item = (session.menu_items_cache || []).find(i => i.id == itemId);
 
     if (!item) {
@@ -805,55 +910,64 @@ async function showItemDetail(sock, from, session, itemId) {
     }
 
     const text =
-        `*${item.name}* 🔥\n\n` +
-        `💰 Bei: Tsh ${item.price?.toLocaleString() || 0}\n` +
-        `${item.description ? `📝 ${item.description}\n` : ''}` +
-        `⏱️ Muda: Dakika 10-15`;
+        `🍲*${item.name.replace(/\s/g, '')}*\n` +
+        `💰${item.price?.toLocaleString()}/=\n` +
+        `${item.description ? `📝${item.description}\n` : ''}`;
 
     const buttons = [
-        { id: `add_${itemId}`, text: '➕ Ongeza' },
-        { id: 'back_items', text: '� Rudi' },
-        { id: 'go_cart', text: '🛒 Cart' }
+        { id: `add_${itemId}`, text: '➕Weka' },
+        { id: 'back_items', text: '🔙Rudi' },
+        { id: 'go_cart', text: '🛒Oda' }
     ];
 
     if (item.image) {
-        await sendImageWithButtons(sock, from, item.image, text, buttons);
+        await sendImageWithButtons(sock, from, item.image, text, buttons, '🍲✨');
     } else {
-        await sendButtons(sock, from, text, buttons);
+        await sendButtons(sock, from, text, buttons, '🍲✨');
     }
 }
 
 async function showQuantitySelection(sock, from, session, itemId) {
-    await sendButtons(sock, from,
-        '�🔢 *Chagua idadi:*',
+    await sendList(sock, from,
+        '🔢*Idadi?*',
+        'Chagua',
         [
-            { id: 'qty_1', text: '1️⃣' },
-            { id: 'qty_2', text: '2️⃣' },
-            { id: 'qty_more', text: '➕ Zaidi' }
-        ]
+            {
+                title: '⚡CHAGUA',
+                rows: [
+                    { id: 'qty_1', title: '1' },
+                    { id: 'qty_2', title: '2' },
+                    { id: 'qty_3', title: '3' },
+                    { id: 'qty_4', title: '4' },
+                    { id: 'qty_5', title: '5' }
+                ]
+            },
+            {
+                title: '🏠NYUMBANI',
+                rows: [
+                    { id: 'qty_more', title: '🔢NambaNyingine' }
+                ]
+            }
+        ],
+        '🔢✨'
     );
 }
 
 async function showQuantityMore(sock, from, session) {
     await sendButtons(sock, from,
-        `🔢 Idadi: *${session.pending_qty}*`,
+        `🔢Idadi: *${session.pending_qty}*`,
         [
-            { id: 'qty_plus', text: '➕ +1' },
-            { id: 'qty_minus', text: '➖ -1' },
-            { id: 'qty_done', text: '✅ Sawa' }
+            { id: 'qty_plus', text: '➕+1' },
+            { id: 'qty_minus', text: '➖-1' },
+            { id: 'qty_done', text: '✅Sawa' }
         ]
     );
 }
 
 async function addToCart(sock, from, session, itemId, qty) {
-    // Find item
-    let item = null;
-    const cache = session.menu_items_cache || [];
-    item = cache.find(i => i.id == itemId);
-
+    let item = (session.menu_items_cache || []).find(i => i.id == itemId);
     if (!item) return;
 
-    // Add or update cart
     const existing = session.cart.find(c => c.menu_id == itemId);
     if (existing) {
         existing.qty += qty;
@@ -869,13 +983,13 @@ async function addToCart(sock, from, session, itemId, qty) {
     const total = session.cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
 
     await sendButtons(sock, from,
-        `✅ *Imeongezwa!*\n\n` +
+        `✅*Imeongezwa!*\n` +
         `${item.name} x${qty}\n` +
-        `Jumla ya sasa: Tsh ${total.toLocaleString()}`,
+        `Jumla: ${total.toLocaleString()}/=`,
         [
-            { id: 'continue_menu', text: '➕ Endelea Menu' },
-            { id: 'go_cart', text: '🛒 Nenda Cart' },
-            { id: 'home', text: '🏠 Home' }
+            { id: 'continue_menu', text: '➕Endelea' },
+            { id: 'go_cart', text: '🛒NendaCart' },
+            { id: 'home', text: '🏠Home' }
         ]
     );
     session.state = 'CART';
@@ -886,67 +1000,67 @@ async function showCart(sock, from, session) {
 
     if (session.cart.length === 0) {
         await sendButtons(sock, from,
-            '🛒 *Cart yako ni tupu*\n\nNenda menu kuagiza chakula.',
+            '🛒*Cart ni tupu*',
             [
-                { id: 'go_menu', text: '🍽️ Menu' },
-                { id: 'home', text: '🏠 Home' }
+                { id: 'go_menu', text: '🍽️Menu' },
+                { id: 'home', text: '🏠Home' }
             ]
         );
         return;
     }
 
-    let text = '🛒 *Cart yako*\n\n';
+    let text = '🛒*Cart yako*\n';
     let total = 0;
     session.cart.forEach((item, i) => {
         const subtotal = item.price * item.qty;
-        text += `${i + 1}. ${item.name} x${item.qty} = Tsh ${subtotal.toLocaleString()}\n`;
+        text += `${i + 1}.${item.name} x${item.qty}=${subtotal.toLocaleString()}/=\n`;
         total += subtotal;
     });
-    text += `\n💰 *Jumla: Tsh ${total.toLocaleString()}*`;
+    text += `💰*Jumla: ${total.toLocaleString()}/=*`;
     session.order_total = total;
 
-    await sendButtons(sock, from, text, [
-        { id: 'confirm_order', text: '✅ Thibitisha' },
-        { id: 'edit_cart', text: '✏️ Badili' },
-        { id: 'home', text: '🏠 Home' }
-    ]);
+    await sendList(sock, from, text, 'Chagua', [
+        {
+            title: '⚡HATUA',
+            rows: [
+                { id: 'confirm_order', title: '✅Thibitisha' },
+                { id: 'continue_menu', title: '➕Ongeza' },
+                { id: 'edit_cart', title: '✏️Badili' }
+            ]
+        },
+        {
+            title: '🏠NYUMBANI',
+            rows: [
+                { id: 'home', title: '🔙RudiMwanzo' }
+            ]
+        }
+    ], '🛒✨');
 }
 
 async function showCartEdit(sock, from, session) {
     session.state = 'CART_EDIT';
-
     const rows = session.cart.map((item, i) => ({
         id: `remove_${i}`,
-        title: `❌ ${item.name}`,
-        description: `x${item.qty} - Tsh ${(item.price * item.qty).toLocaleString()}`
+        title: `❌${item.name.replace(/\s/g, '')}`,
+        description: `x${item.qty}`
     }));
+    rows.push({ id: 'back_cart', title: '🔙RudiCart' });
 
-    rows.push({ id: 'back_cart', title: '🔙 Rudi Cart', description: '' });
-
-    await sendList(sock, from,
-        '✏️ *Badili Cart*\n\nChagua item kuiondoa:',
-        'Ona Items',
-        [{ title: 'Cart Items', rows }]
-    );
+    await sendList(sock, from, '✏️*BadiliCart*', 'Ona Items', [{ title: 'Items', rows }], '✏️✨');
 }
 
 async function showConfirmOrder(sock, from, session) {
     session.state = 'CONFIRM_ORDER';
-
-    let text = '🧾 *Thibitisha Oda*\n\n';
-    text += `📍 Meza: ${session.table_number}\n\n`;
-
-    session.cart.forEach((item, i) => {
-        text += `${item.name} x${item.qty}\n`;
-    });
-
-    text += `\n💰 *Jumla: Tsh ${session.order_total.toLocaleString()}*`;
+    let text = `🧾*Thibitisha Oda*\n`;
+    text += `📍Meza:${session.table_number}\n`;
+    session.cart.forEach(item => { text += `•${item.name} x${item.qty}\n`; });
+    text += `💰*Jumla:${session.order_total.toLocaleString()}/=*`;
 
     await sendButtons(sock, from, text, [
-        { id: 'confirm_yes', text: '✅ Thibitisha' },
-        { id: 'back_cart', text: '🔙 Rudi Cart' },
-        { id: 'cancel_order', text: '❌ Ghairi' }
-    ]);
+        { id: 'confirm_yes', text: '✅Thibitisha' },
+        { id: 'back_cart', text: '🔙Rudi' },
+        { id: 'cancel_order', text: '❌Ghairi' }
+    ], '🧾✨');
 }
 
 async function createOrder(sock, from, session) {
@@ -964,91 +1078,89 @@ async function createOrder(sock, from, session) {
             session.cart = [];
 
             await sendButtons(sock, from,
-                `✅ *Oda Imepokelewa!*\n\n` +
-                `🧾 Order #${result.order_id}\n` +
-                `💰 Jumla: Tsh ${result.total.toLocaleString()}\n\n` +
-                `Waiter anakuja hivi punde...`,
+                `✅*OdaImepokelewa!*\n` +
+                `🧾#${result.order_id}\n` +
+                `💰${result.total.toLocaleString()}/=\n` +
+                `Waiter anakuja...`,
                 [
-                    { id: 'go_payment', text: '💳 Lipa Sasa' },
-                    { id: 'track_order', text: '📍 Track' },
-                    { id: 'home', text: '🏠 Home' }
+                    { id: 'go_payment', text: '💳LipaSasa' },
+                    { id: 'track_order', text: '📍Track' },
+                    { id: 'home', text: '🏠Home' }
                 ]
             );
             session.state = 'HOME';
         }
     } catch (error) {
         console.error('Create order error:', error);
-        await sendText(sock, from, '❌ Tatizo la kutuma oda. Jaribu tena.');
+        await sendText(sock, from, '❌Tatizo la kutuma oda.');
     }
 }
 
 async function showPaymentSummary(sock, from, session) {
     session.state = 'PAYMENT_SUMMARY';
-
     if (!session.active_order_id) {
-        await sendText(sock, from, 'Huna oda ya kulipa. Agiza kwanza.');
+        await sendText(sock, from, 'Huna oda ya kulipa.');
         return await showHomeScreen(sock, from, session);
     }
 
-    // Build bill text
-    let text = '🧾 *Bili yako*\n\n';
-    text += `📋 Order #${session.active_order_id}\n`;
-    text += `📍 Meza: ${session.table_number}\n\n`;
-    text += `💰 *Jumla: Tsh ${session.order_total?.toLocaleString() || 0}*\n\n`;
-    text += 'Chagua njia ya malipo:';
+    let text = '🧾*Bili yako*\n';
+    text += `📋#${session.active_order_id}\n`;
+    text += `💰*Jumla:${session.order_total?.toLocaleString() || 0}/=*\n`;
 
-    await sendButtons(sock, from, text, [
-        { id: 'pay_cash', text: '💵 Cash' },
-        { id: 'pay_mobile', text: '📲 Mobile Money' },
-        { id: 'home', text: '🏠 Home' }
-    ]);
+    await sendList(sock, from, text, 'Malipo', [
+        {
+            title: '💳MALIPO',
+            rows: [
+                { id: 'pay_mobile', title: '📲MobileMoney' },
+                { id: 'pay_cash', title: '💵Cash' }
+            ]
+        },
+        {
+            title: '🏠NYUMBANI',
+            rows: [
+                { id: 'home', title: '🔙RudiMwanzo' }
+            ]
+        }
+    ], '💳✨');
 }
 
 async function showCashPayment(sock, from, session) {
     session.state = 'CASH_PAYMENT';
-
     await sendButtons(sock, from,
-        '💵 *Umechagua CASH*\n\n' +
-        'Tafadhali mpe waiter pesa mezani.\n' +
+        '💵*Umechagua CASH*\n' +
+        'Mpe waiter pesa mezani.\n' +
         'Ukishalipa, bonyeza "NIMELIPA".',
         [
-            { id: 'cash_paid', text: '✅ NIMELIPA' },
-            { id: 'track_order', text: '📍 Track' },
-            { id: 'home', text: '🏠 Home' }
+            { id: 'cash_paid', text: '✅NIMELIPA' },
+            { id: 'track_order', text: '📍Track' },
+            { id: 'home', text: '🏠Home' }
         ]
     );
 }
 
 async function showProviderSelect(sock, from, session) {
     session.state = 'PROVIDER_SELECT';
-
     const rows = [
-        { id: 'provider_mpesa', title: 'M-Pesa', description: 'Vodacom M-Pesa' },
-        { id: 'provider_tigopesa', title: 'Tigo Pesa', description: 'Tigo Mobile Money' },
-        { id: 'provider_airtelmoney', title: 'Airtel Money', description: 'Airtel Mobile Money' },
-        { id: 'provider_halopesa', title: 'HaloPesa', description: 'Halotel HaloPesa' },
-        { id: 'back_payment', title: '🔙 Rudi', description: 'Rudi nyuma' }
+        { id: 'provider_mpesa', title: 'M-Pesa' },
+        { id: 'provider_tigopesa', title: 'TigoPesa' },
+        { id: 'provider_airtelmoney', title: 'AirtelMoney' },
+        { id: 'provider_halopesa', title: 'HaloPesa' },
+        { id: 'back_payment', title: '🔙Rudi' }
     ];
-
-    await sendList(sock, from,
-        '📲 *Mobile Money*\n\nChagua mtandao wako:',
-        'Chagua Mtandao',
-        [{ title: 'Mitandao', rows }]
-    );
+    await sendList(sock, from, '📲*MobileMoney*', 'Chagua', [{ title: 'Mitandao', rows }], '📲✨');
 }
 
 async function showPayNow(sock, from, session) {
     session.state = 'PAY_NOW';
-
     await sendButtons(sock, from,
-        `📲 *Lipa Sasa*\n\n` +
-        `💰 Jumla: Tsh ${session.order_total?.toLocaleString() || 0}\n` +
-        `📱 Namba: ${session.ussd_phone}\n\n` +
-        `Bonyeza "PAY NOW" kutuma ombi.`,
+        `📲*Lipa Sasa*\n` +
+        `💰${session.order_total?.toLocaleString() || 0}/=\n` +
+        `📱${session.ussd_phone}\n` +
+        `Bonyeza "PAY NOW".`,
         [
-            { id: 'paynow', text: '✅ PAY NOW' },
-            { id: 'change_number', text: '✍️ Badilisha' },
-            { id: 'back_provider', text: '⬅️ Rudi' }
+            { id: 'paynow', text: '✅PAY NOW' },
+            { id: 'change_number', text: '✍️Badili' },
+            { id: 'back_provider', text: '⬅️Rudi' }
         ]
     );
 }
@@ -1061,118 +1173,82 @@ async function initiateUssdPayment(sock, from, session) {
             amount: session.order_total,
             provider: session.ussd_provider
         });
-
         if (result.success) {
             session.state = 'USSD_PENDING';
             await sendButtons(sock, from,
-                '📲 *Ombi Limetumwa!*\n\n' +
-                `Fungua USSD/Prompt kwenye simu ${session.ussd_phone} u-confirm malipo.\n\n` +
-                'Ukimaliza, bonyeza "CHECK STATUS".',
+                '📲*Ombi Limetumwa!*\n' +
+                'Confirm kwenye simu yako.\n' +
+                'Ukimaliza bonyeza "CHECK STATUS".',
                 [
-                    { id: 'check_status', text: '🔄 CHECK STATUS' },
-                    { id: 'manual_ussd', text: '📟 Manual' },
-                    { id: 'home', text: '🏠 Home' }
+                    { id: 'check_status', text: '🔄CHECK STATUS' },
+                    { id: 'manual_ussd', text: '📟Manual' },
+                    { id: 'home', text: '🏠Home' }
                 ]
             );
         }
     } catch (error) {
         console.error('USSD error:', error);
-        await sendButtons(sock, from,
-            '❌ *Tatizo la kutuma USSD*\n\n' +
-            'Jaribu tena au tumia njia nyingine.',
-            [
-                { id: 'paynow', text: '🔁 Jaribu Tena' },
-                { id: 'manual_ussd', text: '📟 Manual USSD' },
-                { id: 'pay_cash', text: '💵 Cash' }
-            ]
-        );
-        session.state = 'PAY_NOW';
+        await sendButtons(sock, from, '❌Tatizo la kutuma USSD.', [
+            { id: 'paynow', text: '🔁Jaribu Tena' },
+            { id: 'pay_cash', text: '💵Cash' }
+        ]);
     }
 }
 
 async function checkPaymentStatus(sock, from, session) {
     try {
         const result = await api.getOrderStatus(session.active_order_id);
-
         if (result.payment_status === 'paid') {
-            await sendButtons(sock, from,
-                '✅ *Malipo Yamethibitishwa!*\n\n' +
-                'Asante kwa kulipa. 🙏',
-                [
-                    { id: 'go_feedback', text: '💬 Feedback' },
-                    { id: 'home', text: '🏠 Home' }
-                ]
-            );
+            await sendButtons(sock, from, '✅*Malipo Yamethibitishwa!*', [
+                { id: 'go_feedback', text: '💬Feedback' },
+                { id: 'home', text: '🏠Home' }
+            ]);
             session.state = 'HOME';
-        } else if (result.payment_status === 'failed') {
-            await sendButtons(sock, from,
-                '❌ *Malipo Yameshindwa*\n\n' +
-                'Jaribu tena au chagua njia nyingine.',
-                [
-                    { id: 'paynow', text: '🔁 Jaribu Tena' },
-                    { id: 'pay_cash', text: '💵 Cash' },
-                    { id: 'home', text: '🏠 Home' }
-                ]
-            );
-            session.state = 'PAY_NOW';
         } else {
-            await sendButtons(sock, from,
-                '⏳ *Bado Tunasubiri*\n\n' +
-                'Kama huja-confirm kwenye simu, kagua USSD/Prompt.',
-                [
-                    { id: 'check_status', text: '🔄 Check Tena' },
-                    { id: 'manual_ussd', text: '📟 Manual' },
-                    { id: 'home', text: '🏠 Home' }
-                ]
-            );
+            await sendButtons(sock, from, '⏳*Bado Tunasubiri...*', [
+                { id: 'check_status', text: '🔄Check Tena' },
+                { id: 'home', text: '🏠Home' }
+            ]);
         }
-    } catch (error) {
-        console.error('Check payment error:', error);
-    }
+    } catch (error) { console.error(error); }
 }
 
 async function showManualUssd(sock, from, session) {
     session.state = 'MANUAL_USSD';
-
     await sendButtons(sock, from,
-        '📟 *Manual USSD*\n\n' +
-        'Fuata hatua hizi kulipa:\n' +
-        '1) Piga *150*00# (mfano)\n' +
-        '2) Chagua "Lipa bili"\n' +
-        '3) Ingiza Namba: 123456\n' +
-        '4) Kiasi: ' + session.order_total?.toLocaleString() + '\n' +
-        '5) Thibitisha\n\n' +
-        'Ukimaliza, bonyeza "NIMELIPA":',
+        '📟*Manual USSD*\n' +
+        'Piga *150*00#\n' +
+        'Lipa kiasi: ' + session.order_total?.toLocaleString() + '/=\n' +
+        'Ukimaliza bonyeza "NIMELIPA":',
         [
-            { id: 'manual_paid', text: '✅ NIMELIPA' },
-            { id: 'pay_cash', text: '💵 Cash' },
-            { id: 'home', text: '🏠 Home' }
+            { id: 'manual_paid', text: '✅NIMELIPA' },
+            { id: 'home', text: '🏠Home' }
         ]
     );
 }
 
 async function showPostPaymentOptions(sock, from, session) {
     session.state = 'HOME';
-    await sendButtons(sock, from,
-        '✅ Tumeona request yako.\n\nNini kingine?',
-        [
-            { id: 'go_feedback', text: '💬 Feedback' },
-            { id: 'track_order', text: '📍 Track' },
-            { id: 'home', text: '🏠 Home' }
-        ]
-    );
+    await sendButtons(sock, from, '✅Tumeona request yako.', [
+        { id: 'go_feedback', text: '💬Feedback' },
+        { id: 'track_order', text: '📍Track' },
+        { id: 'home', text: '🏠Home' }
+    ]);
 }
 
 async function showTrackStatus(sock, from, session) {
     session.state = 'TRACK_STATUS';
-
-    if (!session.active_order_id) {
-        await sendText(sock, from, 'Huna oda yoyote.');
-        return await showHomeScreen(sock, from, session);
-    }
-
     try {
-        const result = await api.getOrderStatus(session.active_order_id);
+        // Use the new active-order API which is more reliable for table-based tracking
+        const result = await api.getActiveOrder(session.restaurant_id, session.table_number);
+
+        if (!result.success || !result.order) {
+            await sendText(sock, from, '🧐 Hauuna oda inayoendelea kwa sasa kwenye meza hii.');
+            return await showHomeScreen(sock, from, session);
+        }
+
+        const order = result.order;
+        session.active_order_id = order.id; // Sync session
 
         const statusIcons = {
             'pending': '⏳ Inasubiri',
@@ -1183,181 +1259,184 @@ async function showTrackStatus(sock, from, session) {
             'paid': '💰 Imelipwa'
         };
 
-        await sendButtons(sock, from,
-            `📍 *Oda #${session.active_order_id}*\n\n` +
-            `Status: ${statusIcons[result.status] || result.status}\n` +
-            `Malipo: ${result.payment_status}\n` +
-            `Jumla: Tsh ${result.total?.toLocaleString() || session.order_total}`,
-            [
-                { id: 'refresh', text: '🔄 Refresh' },
-                { id: 'go_payment', text: '💳 Lipa' },
-                { id: 'home', text: '🏠 Home' }
-            ]
-        );
-    } catch (error) {
-        console.error('Track status error:', error);
-        await sendText(sock, from, '❌ Tatizo la kupata status.');
+        let text = `📍 *Oda #${order.id}*\n`;
+        text += `Hali: ${statusIcons[order.status] || order.status}\n`;
+        if (order.waiter_name) {
+            text += `🙋 Mhudumu: ${order.waiter_name}\n`;
+        }
+
+        text += `\n🛒 *Items:*\n`;
+        order.items.forEach(item => {
+            text += `• ${item.name} x${item.quantity}\n`;
+        });
+
+        text += `\n💰 *Jumla: Tsh ${order.total?.toLocaleString()}/=*`;
+
+        await sendButtons(sock, from, text, [
+            { id: 'refresh', text: '🔄 Refresh' },
+            { id: 'home', text: '🏠 Home' }
+        ], '📡✨');
+    } catch (e) {
+        console.error('Track status error:', e);
+        await sendText(sock, from, '❌ Tatizo la kupata status ya oda yako.');
     }
 }
 
 async function showFeedbackA(sock, from, session) {
     session.state = 'FEEDBACK';
-
-    await sendButtons(sock, from,
-        '⭐ *Rating*\n\nTafadhali toa rating ya huduma yetu:',
-        [
-            { id: 'rate_1', text: '⭐ 1' },
-            { id: 'rate_2', text: '⭐⭐ 2' },
-            { id: 'rate_next', text: '➡️ Zaidi' }
-        ]
-    );
+    await sendButtons(sock, from, '⭐*Rating*\nTupe maoni yako:', [
+        { id: 'rate_1', text: '⭐1' },
+        { id: 'rate_2', text: '⭐⭐2' },
+        { id: 'rate_next', text: '➡️Zaidi' }
+    ], '⭐✨');
 }
 
 async function showFeedbackB(sock, from, session) {
     session.state = 'FEEDBACK_B';
+    await sendButtons(sock, from, '⭐*Rating*\nChagua rating:', [
+        { id: 'rate_3', text: '⭐⭐⭐3' },
+        { id: 'rate_4', text: '⭐⭐⭐⭐4' },
+        { id: 'rate_5', text: '⭐⭐⭐⭐⭐5' }
+    ], '⭐✨');
+}
 
-    await sendButtons(sock, from,
-        '⭐ *Rating*\n\nChagua rating:',
-        [
-            { id: 'rate_3', text: '⭐⭐⭐ 3' },
-            { id: 'rate_4', text: '⭐⭐⭐⭐ 4' },
-            { id: 'rate_5', text: '⭐⭐⭐⭐⭐ 5' }
-        ]
-    );
+async function showCallWaiterOptions(sock, from, session) {
+    session.state = 'CALL_WAITER';
+    await sendButtons(sock, from, '🙋 *Unahitaji nini?*', [
+        { id: 'call_only', text: '🙋 Mhudumu' },
+        { id: 'request_bill', text: '🧾 Bili' },
+        { id: 'list_waiters', text: '👥 Orodha ya Wahudumu' },
+        { id: 'home', text: '🏠 Home' }
+    ], '🙋✨');
+}
+
+async function showWaitersList(sock, from, session) {
+    session.state = 'WAITERS_LIST';
+    try {
+        const result = await api.getWaiters(session.restaurant_id);
+        if (result.success && result.data.length > 0) {
+            const rows = result.data.map(w => ({
+                id: `call_waiter_${w.name}`,
+                title: `🙋 ${w.name}`,
+                description: 'Bonyeza kumuita'
+            }));
+
+            rows.push({ id: 'home', title: '🏠 Home', description: '' });
+
+            await sendList(sock, from,
+                '👥 *Wahudumu Wetu*\n\nChagua mhudumu unayetaka kumuita:',
+                'Ona Wahudumu',
+                [{ title: 'Wahudumu', rows }],
+                '👥✨'
+            );
+        } else {
+            await sendText(sock, from, 'Samahani, hakuna wahudumu waliopo kwa sasa.');
+            await showCallWaiterOptions(sock, from, session);
+        }
+    } catch (e) {
+        console.error('Fetch waiters error:', e);
+        await showCallWaiterOptions(sock, from, session);
+    }
 }
 
 async function showTipScreen(sock, from, session) {
     session.state = 'TIP';
-
-    await sendButtons(sock, from,
-        '💝 *Tip*\n\nUngependa kutoa tip kwa waiter?',
-        [
-            { id: 'tip_500', text: 'Tsh 500' },
-            { id: 'tip_1000', text: 'Tsh 1,000' },
-            { id: 'tip_skip', text: 'Skip' }
-        ]
-    );
+    await sendButtons(sock, from, '💝*Tip kwa Waiter?*\nChagua kiasi:', [
+        { id: 'tip_500', text: '500/=' },
+        { id: 'tip_1000', text: '1,000/=' },
+        { id: 'tip_skip', text: 'Skip' }
+    ], '💝✨');
 }
 
 async function handleSearchRestaurant(sock, from, session, query) {
     try {
-        console.log(`Searching for: "${query}"`);
         const result = await api.searchRestaurant(query);
-        console.log('API Result:', JSON.stringify(result));
-
         if (result.success && result.data?.length > 0) {
-            const restaurants = result.data.slice(0, 5); // Max 5 options
-
-            // Store results in session for numbered selection
+            const restaurants = result.data.slice(0, 5);
             session.search_results = restaurants;
+            session.menu_options = {};
 
-            // Build text message with numbered options
-            let text = `🔍 *Nimeona restaurants ${result.count}*\n\nChagua kwa kuandika namba:\n\n`;
+            let text = `━━━━━━━━ 🔍 ━━━━━━━━\n`;
+            text += `✅ Nimeona restaurants: ${result.count}\n`;
+            text += `👇 Chagua kwa kuandika namba:\n`;
+
             restaurants.forEach((r, i) => {
-                text += `${i + 1}. 🏠 ${r.name}\n   📍 ${r.location || 'Tanzania'}\n\n`;
+                const numEmoji = getNumberEmoji(i + 1);
+                text += `${numEmoji} 🏠 ${r.name}\n📍 ${r.location || 'Tanzania'}\n`;
+                session.menu_options[(i + 1).toString()] = `pick_rest_${r.id}`;
             });
-            text += `0. 🔎 Tafuta tena`;
 
+            text += `0️⃣ � Tafuta tena\n`;
+            session.menu_options['0'] = 'search_again';
+
+            text += `━━━━━━━━ ✨ ━━━━━━━━`;
             await sendText(sock, from, text);
             session.state = 'SEARCH_RESTAURANT';
         } else {
-            await sendText(sock, from, 'Samahani, sijaipata restaurant hiyo. Jaribu jina lingine.');
+            await sendText(sock, from, 'Samahani, sijaipata. Jaribu tena.');
         }
-    } catch (error) {
-        console.error('Search error:', error.message);
-        await sendText(sock, from, '❌ Tatizo la kutafuta. Jaribu tena.');
-    }
+    } catch (e) { await sendText(sock, from, '❌Tatizo la kutafuta.'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // MESSAGE SENDERS
 // ═══════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════
-// MESSAGE SENDERS (TEXT MENU SYSTEM)
-// ═══════════════════════════════════════════════════════════════
-
 async function sendText(sock, from, text) {
     await sock.sendMessage(from, { text });
 }
 
-/**
- * Sends a text-based menu with numbered options.
- * Automatically maps options to session.menu_options for easy handling.
- */
-async function sendButtons(sock, from, text, buttons) {
+async function sendButtons(sock, from, text, buttons, headerEmoji = '✨') {
     const session = sessions[from];
-    session.menu_options = {}; // Reset options
-
-    let menuText = text + '\n\n';
-
+    session.menu_options = {};
+    let menuText = `━━━━━━━━ ${headerEmoji} ━━━━━━━━\n`;
+    menuText += text + '\n\n';
     buttons.forEach((b, i) => {
         const key = (i + 1).toString();
-        // Add emoji based on text content if not present
-        let label = b.text;
-
-        // Store mapping
         session.menu_options[key] = b.id;
-
-        // Format line: 1️⃣ Option
-        const emojiKey = getNumberEmoji(i + 1);
-        menuText += `${emojiKey} ${label}\n`;
+        const numEmoji = getNumberEmoji(i + 1);
+        menuText += `${numEmoji}${b.text}\n`;
     });
-
-    // Add generic instructions
-    menuText += '\n_(Chagua namba)_';
-
+    menuText += '━━━━━━━━━━━━━━━━\n';
+    menuText += '✅JibuNambaKuchagua';
     await sock.sendMessage(from, { text: menuText });
 }
 
-/**
- * Sends a list as a text menu.
- */
-async function sendList(sock, from, text, buttonText, sections) {
+async function sendList(sock, from, text, buttonText, sections, headerEmoji = '✨') {
     const session = sessions[from];
-    session.menu_options = {}; // Reset options
-
-    let menuText = text + '\n\n';
+    session.menu_options = {};
+    let menuText = `━━━━━━━━${headerEmoji}━━━━━━━━\n`;
+    menuText += text + '\n';
     let counter = 1;
-
     sections.forEach(section => {
-        if (section.title) menuText += `*${section.title.toUpperCase()}*\n`;
-
+        if (section.title) menuText += `${section.title}\n`;
         section.rows.forEach(row => {
             const key = counter.toString();
             session.menu_options[key] = row.id;
-
-            menuText += `${key}. ${row.title}`;
-            if (row.description) menuText += ` - ${row.description}`;
+            const numEmoji = getNumberEmoji(counter);
+            menuText += `${numEmoji}${row.title}`;
+            if (row.description) menuText += `(${row.description})`;
             menuText += '\n';
             counter++;
         });
-        menuText += '\n';
     });
-
-    menuText += '_(Andika namba kuchagua)_';
-
+    menuText += '━━━━━━━━━━━━━━━━\n';
+    menuText += '✅JibuNambaKuchagua';
     await sock.sendMessage(from, { text: menuText });
 }
 
-async function sendImageWithButtons(sock, from, imageUrl, caption, buttons) {
-    // Send image first
+async function sendImageWithButtons(sock, from, imageUrl, caption, buttons, headerEmoji = '✨') {
     try {
-        await sock.sendMessage(from, {
-            image: { url: imageUrl },
-            caption: caption
-        });
+        await sock.sendMessage(from, { image: { url: imageUrl }, caption: caption });
     } catch (e) {
         await sendText(sock, from, caption);
     }
-
-    // Then send the menu options as text
-    await sendButtons(sock, from, 'Chagua:', buttons);
+    await sendButtons(sock, from, 'Chagua:', buttons, headerEmoji);
 }
 
 function getNumberEmoji(num) {
     const emojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-    return emojis[num] || `${num}.`;
+    return emojis[num] || `*${num}.*`;
 }
 
 module.exports = { handleMessage };
