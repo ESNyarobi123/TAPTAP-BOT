@@ -268,7 +268,7 @@ async function handleStartState(sock, from, session, text) {
     if (greetings.includes(text.toLowerCase())) {
         await sendText(sock, from,
             '━━━━━━━━ ✨ ━━━━━━━━\n' +
-            '👋 Karibu TAPTAP!\n' +
+            '👋 Karibu TIPTAP!\n' +
             '📲 Oda chakula kupitia WhatsApp\n' +
             '✍️ Andika jina la restaurant unayotaka\n' +
             'au 📷 Scan QR (ipo mezani)\n' +
@@ -742,7 +742,7 @@ async function handleTipState(sock, from, session, text) {
         }
 
         await sendText(sock, from,
-            '🎉 Asante kwa kutumia TAPTAP!\n\nKaribu tena! 👋'
+            '🎉 Asante kwa kutumia TIPTAP!\n\nKaribu tena! 👋'
         );
         await showHomeScreen(sock, from, session);
     }

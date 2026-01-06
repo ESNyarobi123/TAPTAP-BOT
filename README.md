@@ -1,6 +1,6 @@
-# TAPTAP WhatsApp Bot
+# TIPTAP WhatsApp Bot
 
-WhatsApp bot ya TAPTAP - Restaurant ordering system powered by Baileys.
+WhatsApp bot ya TIPTAP - Restaurant ordering system powered by Baileys.
 
 ## 🚀 Quick Start
 
@@ -12,7 +12,7 @@ WhatsApp bot ya TAPTAP - Restaurant ordering system powered by Baileys.
 2. **Configure environment:**
    Edit `.env` file:
    ```env
-   API_BASE_URL=https://taptap.tendapoa.com/api/bot
+   API_BASE_URL=https://TIPTAP.tendapoa.com/api/bot
    BOT_TOKEN=your_sanctum_token_here
    PORT=3000
    ```

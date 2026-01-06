@@ -12,7 +12,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const { handleMessage } = require('./handler.js');
 
 console.log('╔════════════════════════════════════════════════════════════════╗');
-console.log('║                    TAPTAP WhatsApp Bot                          ║');
+console.log('║                    TIPTAP WhatsApp Bot                          ║');
 console.log('║         Restaurant Ordering System via WhatsApp                 ║');
 console.log('╚════════════════════════════════════════════════════════════════╝');
 console.log('');
@@ -67,7 +67,7 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             console.log('');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('✅ TAPTAP Bot is now ONLINE and ready to receive messages!');
+            console.log('✅ TIPTAP Bot is now ONLINE and ready to receive messages!');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('');
         }
@@ -96,7 +96,7 @@ async function connectToWhatsApp() {
 
     // Handle graceful shutdown
     process.on('SIGINT', () => {
-        console.log('\n👋 Shutting down TAPTAP Bot...');
+        console.log('\n👋 Shutting down TIPTAP Bot...');
         process.exit(0);
     });
 }
