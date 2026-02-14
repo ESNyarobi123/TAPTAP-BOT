@@ -314,7 +314,7 @@ async function handleEntry(sock, from, session, text) {
             // If table is not set, we might need to ask for it, or maybe just welcome them
             // The prompt says: "Bot inamwingiza kwenye restaurant na kum-assign huyo waiter."
 
-            // await sendText(sock, from, result.message || `Welcome to ${result.data.restaurant_name}! ${result.data.waiter_name} will be your waiter.`);
+            await sendText(sock, from, result.message || `Welcome to ${result.data.restaurant_name}! ${result.data.waiter_name} will be your waiter.`);
 
             // If we don't have a table yet, maybe ask for it or just go home?
             // Assuming we go to Home, but without a table number some features might be limited.
@@ -440,7 +440,6 @@ async function handleHomeState(sock, from, session, text) {
         await showTrackStatus(sock, from, session);
     } else if (t === 'rate_service' || t.includes('rate')) {
         if (session.waiter_id && session.waiter_name) {
-            // Auto-select assigned waiter and go directly to rating
             session.feedback_waiter_id = session.waiter_id;
             session.feedback_waiter_name = session.waiter_name;
             await showFeedbackA(sock, from, session);
@@ -454,7 +453,7 @@ async function handleHomeState(sock, from, session, text) {
             // Auto-select assigned waiter
             session.tip_waiter_id = session.waiter_id;
             session.tip_waiter_name = session.waiter_name;
-            session.quick_payment_desc = `Tip  ${session.tip_waiter_name}`;
+            session.quick_payment_desc = `Tip for ${session.tip_waiter_name}`;
             await showQuickPaymentAmount(sock, from, session);
         } else {
             await showWaiterTipList(sock, from, session);
@@ -693,7 +692,7 @@ async function handlePaymentSummaryState(sock, from, session, text) {
             break;
         case 'pay_mobile':
             session.state = 'USSD_NUMBER';
-            await sendText(sock, from, '📱 Enter Mobile Money phone number\nExample: (e.g., xx07xxxxxx)');
+            await sendText(sock, from, '📱 Enter Mobile Money phone number\nExample: 0712345678');
             break;
         case 'home':
             await showHomeScreen(sock, from, session);
@@ -724,7 +723,7 @@ async function handleProviderSelectState(sock, from, session, text) {
         session.state = 'USSD_NUMBER';
         await sendText(sock, from,
             '📱 Enter Mobile Money phone number\n' +
-            '(e.g., 07xxxxxx)'
+            'Example: 0712345678 or 255712345678'
         );
     } else if (text === 'back_payment') {
         await showPaymentSummary(sock, from, session);
@@ -738,7 +737,7 @@ async function handleUssdNumberState(sock, from, session, text) {
         session.ussd_provider = detectNetwork(session.ussd_phone);
         await showPayNow(sock, from, session);
     } else {
-        await sendText(sock, from, '❌ Invalid number. Enter like (e.g., 07xxxxxx)');
+        await sendText(sock, from, '❌ Invalid number. Enter like 0712345678 or 255712345678');
     }
 }
 
@@ -841,7 +840,7 @@ async function handleFeedbackState(sock, from, session, text) {
 
         const target = session.feedback_waiter_name ? `for *${session.feedback_waiter_name}*` : 'for our service';
         await sendText(sock, from,
-            `📝 Any comments ?\n\n(Type comment or "skip" to continue)`
+            `📝 Any comments ${target}?\n\n(Type comment or "skip" to continue)`
         );
     }
 }
@@ -926,7 +925,7 @@ async function showHomeScreen(sock, from, session) {
     rows.push({ id: 'exit_bot', title: '❌ Exit', description: 'Leave' });
 
     await sendList(sock, from,
-        `👋 Welcome to *${name}* (${info}) will be your waiter.\nChoose service:`,
+        `👋 Welcome to *${name}* (${info})\nChoose service:`,
         'Service',
         [
             {
@@ -1539,7 +1538,7 @@ async function showWaitersList(sock, from, session) {
 
 async function showTipScreen(sock, from, session) {
     session.state = 'TIP';
-    await sendButtons(sock, from, '💝*Tip  Waiter?*\nChoose amount:', [
+    await sendButtons(sock, from, '💝*Tip for Waiter?*\nChoose amount:', [
         { id: 'tip_500', text: '500/=' },
         { id: 'tip_1000', text: '1,000/=' },
         { id: 'tip_skip', text: 'Skip' }
@@ -1708,8 +1707,8 @@ async function showLiveBillOptions(sock, from, session) {
 async function showQuickPaymentPhone(sock, from, session) {
     session.state = 'QUICK_PAYMENT_PHONE';
     const msg = session.tip_waiter_id
-        ? '📱 Enter phone number to get a payment request(e.g., 07xxxxxx)::'
-        : '📱 Enter phone number to get a payment request(e.g., 07xxxxxx):';
+        ? '📱 Enter phone number to tip (e.g., 0712345678):'
+        : '📱 Enter phone number to pay (e.g., 0712345678):';
     await sendText(sock, from, msg);
 }
 
@@ -1725,7 +1724,7 @@ async function handleQuickPaymentPhoneState(sock, from, session, text) {
 async function showQuickPaymentAmount(sock, from, session) {
     session.state = 'QUICK_PAYMENT_AMOUNT';
     const msg = session.tip_waiter_id && session.tip_waiter_name
-        ? `💰 tip ${session.tip_waiter_name.toUpperCase()} (Tshs):`
+        ? `💰 Tip ${session.tip_waiter_name.toUpperCase()} (Tsh):`
         : '💰 Enter amount to pay (Tsh):';
     await sendText(sock, from, msg);
 }
@@ -1824,7 +1823,7 @@ async function handleSelectWaiterTipState(sock, from, session, text) {
         const parts = text.replace('tip_waiter_', '').split('|');
         session.tip_waiter_id = parts[0];
         session.tip_waiter_name = parts[1];
-        session.quick_payment_desc = `Tip  ${session.tip_waiter_name}`;
+        session.quick_payment_desc = `Tip for ${session.tip_waiter_name}`;
         await showQuickPaymentAmount(sock, from, session);
     } else if (text === 'home') {
         await showHomeScreen(sock, from, session);
