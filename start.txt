@@ -1,0 +1,7 @@
+cd /opt/titap-bot/tiptopbot
+
+docker logs -f tiptop-bot
+
+
+docker compose up -d --build
+
