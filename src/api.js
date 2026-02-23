@@ -208,6 +208,16 @@ module.exports = {
     },
 
     /**
+     * Check if waiter is online (before call-waiter).
+     * GET /api/bot/waiter/{waiterId}/status
+     * Response: { success, data: { waiter_id, name, is_online, last_online_at } }
+     */
+    getWaiterStatus: async (waiterId) => {
+        const response = await api.get(`/waiter/${waiterId}/status`);
+        return response.data;
+    },
+
+    /**
      * 10. Call Waiter / Request Bill
      * POST /api/bot/call-waiter
      * Body: { restaurant_id, table_number, request_type }

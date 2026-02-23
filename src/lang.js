@@ -85,6 +85,18 @@ const L = {
     thanks_using_tiptap: 'Thanks for using TipTap!\n\nWelcome again! 👋',
     comment_prompt: 'Enter comment or type END to finish',
     not_understood: "Sorry, I didn't understand. Type \"Hi\" to start over.",
+    // Call waiter – offline & flow
+    waiter_offline_msg: '*{name}* is currently *offline*.\n\nYou can:\n• Type *0* – Go back to menu\n• Type *EXIT* – Leave completely\n• *Scan another waiter\'s QR* – To get a waiter who is online',
+    call_waiter_sent: 'Request for *{label}* sent! Waiter is coming shortly.',
+    call_waiter_failed: 'Sorry, failed to send request. Please try again later.',
+    call_waiter_table_invalid: 'Please enter a valid table number (e.g. 1, 2, 5) or choose from the list.',
+    waiters_list_title: 'Our Waiters',
+    waiters_list_subtitle: 'Choose a waiter to call (only online waiters can receive calls).',
+    waiters_list_empty: 'Sorry, no waiters available right now.',
+    waiters_list_btn: 'View Waiters',
+    waiters_offline_badge: '(Offline)',
+    waiters_tap_to_call: 'Tap to call',
+    waiters_not_on_duty: 'Not on duty',
   },
   sw: {
     home_welcome: 'Karibu',
@@ -160,6 +172,18 @@ const L = {
     thanks_using_tiptap: 'Asante kwa kutumia TipTap!\n\nKaribu tena! 👋',
     comment_prompt: 'Ingiza maoni au andika END kumaliza',
     not_understood: 'Samahani, sikuweza kuelewa. Andika "Hi" kuanza.',
+    // Call waiter – offline & flow
+    waiter_offline_msg: '*{name}* sasa *haiko online*.\n\nUnaweza:\n• Andika *0* – Rudi kwenye menu\n• Andika *EXIT* – Ondoka kabisa\n• *Scan QR ya waiter mwingine* – Ili kupata mhudumu aliye online',
+    call_waiter_sent: 'Ombi la *{label}* limepokelewa! Mhudumu anakuja hivi karibuni.',
+    call_waiter_failed: 'Samahani, kutumia ombi kumeshindwa. Tafadhali jaribu tena baadaye.',
+    call_waiter_table_invalid: 'Tafadhali ingiza nambari sahihi ya meza (mf. 1, 2, 5) au chagua kutoka orodha.',
+    waiters_list_title: 'Wahudumu Wetu',
+    waiters_list_subtitle: 'Chagua mhudumu kumwita (wanaoona tu wanaweza kupokea wito).',
+    waiters_list_empty: 'Samahani, hakuna wahudumu waliopo sasa.',
+    waiters_list_btn: 'Tazama Wahudumu',
+    waiters_offline_badge: '(Haiko kazini)',
+    waiters_tap_to_call: 'Bonyeza kumuita',
+    waiters_not_on_duty: 'Haiko kazini',
   },
 };
 

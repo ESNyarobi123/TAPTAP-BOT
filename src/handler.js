@@ -487,6 +487,19 @@ async function handleHomeState(sock, from, session, text) {
         }
     } else if (t === 'call_waiter' || t.includes('call')) {
         if (session.waiter_id) {
+            // Check waiter online status FIRST (before asking table) when customer has specific waiter (e.g. from QR)
+            let statusRes;
+            try {
+                statusRes = await api.getWaiterStatus(session.waiter_id);
+            } catch (e) {
+                console.error('Waiter status check error:', e);
+            }
+            if (statusRes && statusRes.success && statusRes.data && !statusRes.data.is_online) {
+                const waiterName = statusRes.data.name || session.waiter_name || 'Waiter';
+                const msg = T(session, 'waiter_offline_msg').replace(/{name}/g, waiterName);
+                await sendText(sock, from, `⚠️ ${msg}`);
+                return;
+            }
             if (session.table_number || session.table_id) {
                 await initiateCallWaiter(sock, from, session, 'call_waiter', 'Call Waiter');
             } else {
@@ -535,8 +548,14 @@ async function handleCallWaiterState(sock, from, session, text) {
 
 async function handleWaitersListState(sock, from, session, text) {
     if (text.startsWith('call_waiter_')) {
-        const waiterName = text.replace('call_waiter_', '');
-        await initiateCallWaiter(sock, from, session, `call_waiter_${waiterName}`, `Call ${waiterName}`);
+        const rest = text.replace('call_waiter_', '');
+        const pipe = rest.indexOf('|');
+        const waiterId = pipe >= 0 ? rest.slice(0, pipe) : null;
+        const waiterName = pipe >= 0 ? rest.slice(pipe + 1) : rest;
+        if (waiterId) session.waiter_id = waiterId;
+        if (waiterName) session.waiter_name = waiterName;
+        const apiType = pipe >= 0 ? 'call_waiter' : `call_waiter_${waiterName}`;
+        await initiateCallWaiter(sock, from, session, apiType, waiterName ? `Call ${waiterName}` : 'Call Waiter');
     } else if (text === 'home') {
         await showHomeScreen(sock, from, session);
     } else {
@@ -550,20 +569,20 @@ async function showCallWaiterAskTable(sock, from, session) {
         if (result.success && result.data && result.data.length > 0) {
             session.call_waiter_tables = result.data;
             session.menu_options = {};
-            let msg = `🪑 *Upo meza namba ngapi?*\n\nChagua meza yako (andika namba):\n`;
+            let msg = `🪑 *${T(session, 'order_which_table')}*\n\n${T(session, 'choose')}\n`;
             result.data.slice(0, 10).forEach((t, i) => {
                 const num = (i + 1).toString();
                 session.menu_options[num] = `table_${t.id}`;
                 msg += `${num}. ${t.name}\n`;
             });
-            msg += `\n✅ Andika namba ya meza (1-${Math.min(10, result.data.length)}) au meza yako (mfano: 5)`;
+            msg += `\n_${T(session, 'order_reply_table_number')}_`;
             await sendText(sock, from, msg);
         } else {
-            await sendText(sock, from, '🪑 Upo meza namba ngapi? (Andika namba ya meza, mfano: 5)');
+            await sendText(sock, from, `🪑 ${T(session, 'order_which_table')}\n\n${T(session, 'enter_table')}`);
         }
     } catch (e) {
         console.error('getRestaurantTables error:', e);
-        await sendText(sock, from, '🪑 Upo meza namba ngapi? (Andika namba ya meza)');
+        await sendText(sock, from, `🪑 ${T(session, 'order_which_table')}\n\n${T(session, 'enter_table')}`);
     }
 }
 
@@ -734,7 +753,7 @@ async function handleCallWaiterAskTableState(sock, from, session, text) {
             session.state = 'HOME';
             await initiateCallWaiter(sock, from, session, apiType, label);
         } else {
-            await sendText(sock, from, '❌ Andika namba ya meza (mf. 1, 2, 5) au chagua kutoka orodha.');
+            await sendText(sock, from, `❌ ${T(session, 'call_waiter_table_invalid')}`);
             await showCallWaiterAskTable(sock, from, session);
         }
     }
@@ -742,6 +761,23 @@ async function handleCallWaiterAskTableState(sock, from, session, text) {
 
 async function initiateCallWaiter(sock, from, session, apiType, displayName) {
     try {
+        // If customer has a specific waiter (from QR scan), check if they're online first
+        if (session.waiter_id) {
+            let statusRes;
+            try {
+                statusRes = await api.getWaiterStatus(session.waiter_id);
+            } catch (e) {
+                console.error('Waiter status check error:', e);
+            }
+            if (statusRes && statusRes.success && statusRes.data && !statusRes.data.is_online) {
+                const waiterName = statusRes.data.name || session.waiter_name || 'Waiter';
+                const msg = T(session, 'waiter_offline_msg').replace(/{name}/g, waiterName);
+                await sendText(sock, from, `⚠️ ${msg}`);
+                session.state = 'HOME';
+                return;
+            }
+        }
+
         const payload = {
             restaurant_id: session.restaurant_id,
             table_number: session.table_number || '',
@@ -751,11 +787,12 @@ async function initiateCallWaiter(sock, from, session, apiType, displayName) {
         if (session.table_id) payload.table_id = session.table_id;
         await api.callWaiter(payload);
 
-        await sendText(sock, from, `✅ Request for *${displayName}* sent! Waiter is coming shortly.`);
+        const sentMsg = T(session, 'call_waiter_sent').replace(/{label}/g, displayName);
+        await sendText(sock, from, `✅ ${sentMsg}`);
         await showHomeScreen(sock, from, session);
     } catch (e) {
         console.error('Call waiter error:', e);
-        await sendText(sock, from, '❌ Sorry, failed to send request. Please try again later.');
+        await sendText(sock, from, `❌ ${T(session, 'call_waiter_failed')}`);
         await showHomeScreen(sock, from, session);
     }
 }
@@ -1777,21 +1814,21 @@ async function showWaitersList(sock, from, session) {
         const result = await api.getWaiters(session.restaurant_id);
         if (result.success && result.data.length > 0) {
             const rows = result.data.map(w => ({
-                id: `call_waiter_${w.name}`,
-                title: `🙋 ${w.name}`,
-                description: 'Bonyeza kumuita'
+                id: `call_waiter_${w.id}|${w.name}`,
+                title: w.is_online ? `🙋 ${w.name}` : `🙋 ${w.name} ${T(session, 'waiters_offline_badge')}`,
+                description: w.is_online ? T(session, 'waiters_tap_to_call') : T(session, 'waiters_not_on_duty')
             }));
 
             rows.push({ id: 'home', title: '🏠 Home', description: '' });
 
             await sendList(sock, from,
-                '👥 *Our Waiters*\n\nChoose a waiter to call:',
-                'View Waiters',
-                [{ title: 'Waiters', rows }],
+                `👥 *${T(session, 'waiters_list_title')}*\n\n${T(session, 'waiters_list_subtitle')}`,
+                T(session, 'waiters_list_btn'),
+                [{ title: T(session, 'waiters_list_title'), rows }],
                 '👥✨'
             );
         } else {
-            await sendText(sock, from, 'Sorry, no waiters available right now.');
+            await sendText(sock, from, T(session, 'waiters_list_empty'));
             await showCallWaiterOptions(sock, from, session);
         }
     } catch (e) {
