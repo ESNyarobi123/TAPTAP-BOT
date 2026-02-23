@@ -1,4 +1,5 @@
 const api = require('./api');
+const { T } = require('./lang');
 
 const sessions = {};
 
@@ -34,6 +35,15 @@ async function handleMessage(sock, msg) {
         if (session.menu_options[num]) {
             text = session.menu_options[num];
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // GLOBAL: 0 = Back to main menu (from any state)
+    // ═══════════════════════════════════════════════════════════════
+    if (text === '0') {
+        session.state = 'HOME';
+        await showHomeScreen(sock, from, session);
+        return;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -200,6 +210,18 @@ async function handleMessage(sock, msg) {
                 await handleQuickPaymentPendingState(sock, from, session, text);
                 break;
 
+            case 'CALL_WAITER_ASK_TABLE':
+                await handleCallWaiterAskTableState(sock, from, session, text);
+                break;
+
+            case 'PICK_TABLE_FOR_ORDER':
+                await handlePickTableForOrderState(sock, from, session, text);
+                break;
+
+            case 'LANGUAGE_SELECT':
+                await handleLanguageSelectState(sock, from, session, text);
+                break;
+
             case 'SELECT_WAITER_TIP':
                 await handleSelectWaiterTipState(sock, from, session, text);
                 break;
@@ -209,7 +231,7 @@ async function handleMessage(sock, msg) {
                 break;
 
             default:
-                await sendText(sock, from, 'Sorry, I didn\'t understand. Type "Hi" to start over.');
+                await sendText(sock, from, T(session, 'not_understood'));
                 session.state = 'START';
                 break;
         }
@@ -265,9 +287,11 @@ function extractMessageText(msg) {
 function createNewSession() {
     return {
         state: 'START',
+        lang: 'en',
         cart: [],
         restaurant_id: null,
         restaurant_name: null,
+        support_phone: null,
         table_number: null,
         table_id: null,
         waiter_id: null,
@@ -297,7 +321,7 @@ function createNewSession() {
 // UNIFIED ENTRY HANDLER (QR & TAGS)
 // ═══════════════════════════════════════════════════════════════
 async function handleEntry(sock, from, session, text) {
-    await sendText(sock, from, '🔄 Verifying...');
+    await sendText(sock, from, `🔄 ${T(session, 'verifying')}`);
 
     try {
         const result = await api.parseEntry(text);
@@ -307,14 +331,13 @@ async function handleEntry(sock, from, session, text) {
             // Waiter Assignment
             session.restaurant_id = result.data.restaurant_id;
             session.restaurant_name = result.data.restaurant_name;
+            session.support_phone = result.data.support_phone || null;
             session.waiter_id = result.data.waiter_id;
             session.waiter_name = result.data.waiter_name;
             session.header_info = result.data.waiter_name; // Set header for Home Screen
 
-            // If table is not set, we might need to ask for it, or maybe just welcome them
-            // The prompt says: "Bot inamwingiza kwenye restaurant na kum-assign huyo waiter."
-
-            await sendText(sock, from, result.message || `Welcome to ${result.data.restaurant_name}! ${result.data.waiter_name} will be your waiter.`);
+            // Do not send standalone "Welcome to X! Y will be your waiter." — go straight to menu only.
+            // (API may send skip_standalone_welcome; we always skip here so the first bubble never appears.)
 
             // If we don't have a table yet, maybe ask for it or just go home?
             // Assuming we go to Home, but without a table number some features might be limited.
@@ -326,27 +349,24 @@ async function handleEntry(sock, from, session, text) {
             // Table Assignment
             session.restaurant_id = result.data.restaurant_id;
             session.restaurant_name = result.data.restaurant_name;
+            session.support_phone = result.data.support_phone || null;
             session.table_id = result.data.table_id;
             session.table_number = result.data.table_number || result.data.table_name; // Assuming 'number' is the display number
             session.header_info = `Table ${session.table_number}`; // Set header for Home Screen
 
-            // Clear waiter if switching tables? Maybe not.
-            // But if it's a fresh scan, maybe we should.
-            // The prompt says: "Bot inamwingiza kwenye restaurant hiyo na meza hiyo moja kwa moja."
-
-            await sendText(sock, from, result.message || `Welcome to ${result.data.restaurant_name}! You are at Table ${session.table_number}.`);
+            // Do not send standalone welcome line — go straight to menu only.
             await showHomeScreen(sock, from, session);
 
-        } else {
-            await sendText(sock, from, 
-                '❌ Invalid QR Code or Tag.\n\n' +
+} else {
+            await sendText(sock, from,
+                `❌ ${T(session, 'invalid_qr')}\n\n` +
                 'No QR code? No problem! Please type the code START-_-_W** to proceed.'
             );
             session.state = 'SEARCH_RESTAURANT';
         }
     } catch (error) {
         console.error('Entry error:', error);
-        await sendText(sock, from, '❌ Error verifying entry. Please try again.');
+        await sendText(sock, from, `❌ ${T(session, 'error_try_again')}`);
         session.state = 'SEARCH_RESTAURANT';
     }
 }
@@ -360,7 +380,7 @@ async function handleStartState(sock, from, session, text) {
     if (greetings.includes(text.toLowerCase())) {
         await sendText(sock, from,
             '👋 Welcome to TipTap!\n' +
-            'Please scan the waiter\'s QR code to proceed.'
+            'Please scan the waiter\'s QR code or enter a code to proceed.'
         );
         session.state = 'SEARCH_RESTAURANT';
     } else {
@@ -381,6 +401,7 @@ async function handleSearchState(sock, from, session, text) {
         if (restaurant) {
             session.restaurant_id = restaurant.id;
             session.restaurant_name = restaurant.name;
+            session.support_phone = restaurant.support_phone || null;
 
             if (!session.table_number) {
                 await showTableSelection(sock, from, session);
@@ -396,7 +417,10 @@ async function handleSearchState(sock, from, session, text) {
         session.restaurant_id = text.replace('pick_rest_', '');
         try {
             const result = await api.verifyRestaurant(session.restaurant_id, null);
-            if (result.success) session.restaurant_name = result.data.name;
+            if (result.success) {
+                session.restaurant_name = result.data.name;
+                session.support_phone = result.data.support_phone || null;
+            }
         } catch (e) { }
 
         if (!session.table_number) {
@@ -417,7 +441,7 @@ async function handleTableState(sock, from, session, text) {
         const val = text.replace('table_', '');
         if (val === 'type') {
             session.state = 'TABLE_INPUT';
-            await sendText(sock, from, 'Enter table number (e.g., 7):');
+            await sendText(sock, from, T(session, 'enter_table'));
         } else {
             session.table_number = val;
             await showHomeScreen(sock, from, session);
@@ -426,7 +450,7 @@ async function handleTableState(sock, from, session, text) {
         session.table_number = text;
         await showHomeScreen(sock, from, session);
     } else {
-        await sendText(sock, from, 'Please enter a valid table number.');
+        await sendText(sock, from, T(session, 'valid_table'));
     }
 }
 
@@ -434,9 +458,12 @@ async function handleHomeState(sock, from, session, text) {
     const t = text.toLowerCase();
 
     // New Menu Options Mapping
+    // Menu = menu image only (no list menu from main screen)
     if (t === 'view_menu' || t.includes('menu')) {
         await showMenuImage(sock, from, session);
-    } else if (t === 'track_order' || t === 'status' || t.includes('track')) {
+        return;
+    }
+    if (t === 'track_order' || t === 'status' || t.includes('track')) {
         await showTrackStatus(sock, from, session);
     } else if (t === 'rate_service' || t.includes('rate')) {
         if (session.waiter_id && session.waiter_name) {
@@ -459,16 +486,34 @@ async function handleHomeState(sock, from, session, text) {
             await showWaiterTipList(sock, from, session);
         }
     } else if (t === 'call_waiter' || t.includes('call')) {
-        // Direct call waiter if assigned
         if (session.waiter_id) {
-            await initiateCallWaiter(sock, from, session, 'call_waiter', 'Call Waiter');
+            if (session.table_number || session.table_id) {
+                await initiateCallWaiter(sock, from, session, 'call_waiter', 'Call Waiter');
+            } else {
+                session.state = 'CALL_WAITER_ASK_TABLE';
+                session.pending_call_type = 'call_waiter';
+                session.pending_call_label = 'Call Waiter';
+                await showCallWaiterAskTable(sock, from, session);
+            }
         } else {
-            // Fallback if somehow called without waiter (shouldn't happen due to UI check)
             await showWaitersList(sock, from, session);
         }
+    } else if (t === 'customer_support' || t.includes('support')) {
+        if (session.support_phone) {
+            // One message only: support number + "Type 0 to go back". No extra "Choose: 1 Back to Menu" bubble.
+            await sendText(sock, from,
+                `📞 *${T(session, 'support_title')}*\n\n` +
+                `${T(session, 'support_call')} *${session.support_phone}*\n\n` +
+                `_${T(session, 'support_type_zero')}_`
+            );
+        } else {
+            await showHomeScreen(sock, from, session);
+        }
+    } else if (t === 'change_language' || t.includes('language') || t.includes('lugha')) {
+        await showLanguageSelect(sock, from, session);
     } else if (t === 'exit_bot' || t.includes('exit')) {
         sessions[from] = createNewSession();
-        await sendText(sock, from, 'Goodbye! Thank you for visiting us.');
+        await sendText(sock, from, T(session, 'goodbye'));
     } else {
         await showHomeScreen(sock, from, session);
     }
@@ -499,14 +544,212 @@ async function handleWaitersListState(sock, from, session, text) {
     }
 }
 
+async function showCallWaiterAskTable(sock, from, session) {
+    try {
+        const result = await api.getRestaurantTables(session.restaurant_id);
+        if (result.success && result.data && result.data.length > 0) {
+            session.call_waiter_tables = result.data;
+            session.menu_options = {};
+            let msg = `🪑 *Upo meza namba ngapi?*\n\nChagua meza yako (andika namba):\n`;
+            result.data.slice(0, 10).forEach((t, i) => {
+                const num = (i + 1).toString();
+                session.menu_options[num] = `table_${t.id}`;
+                msg += `${num}. ${t.name}\n`;
+            });
+            msg += `\n✅ Andika namba ya meza (1-${Math.min(10, result.data.length)}) au meza yako (mfano: 5)`;
+            await sendText(sock, from, msg);
+        } else {
+            await sendText(sock, from, '🪑 Upo meza namba ngapi? (Andika namba ya meza, mfano: 5)');
+        }
+    } catch (e) {
+        console.error('getRestaurantTables error:', e);
+        await sendText(sock, from, '🪑 Upo meza namba ngapi? (Andika namba ya meza)');
+    }
+}
+
+/** Ask which table (for order) — tables fetched from manager via API. Used before submitting text order or cart. */
+async function showOrderTableSelect(sock, from, session) {
+    session.state = 'PICK_TABLE_FOR_ORDER';
+    try {
+        const result = await api.getRestaurantTables(session.restaurant_id);
+        if (result.success && result.data && result.data.length > 0) {
+            session.order_tables = result.data;
+            session.menu_options = {};
+            let msg = `🪑 *${T(session, 'order_which_table')}*\n\n`;
+            result.data.slice(0, 15).forEach((t, i) => {
+                const num = (i + 1).toString();
+                session.menu_options[num] = `table_${t.id}`;
+                msg += `${getNumberEmoji(i + 1)} ${t.name}\n`;
+            });
+            msg += `\n_${T(session, 'order_reply_table_number')}_`;
+            await sendText(sock, from, msg);
+        } else {
+            await sendText(sock, from, `🪑 ${T(session, 'order_which_table')}\n\n${T(session, 'enter_table')}`);
+        }
+    } catch (e) {
+        console.error('getRestaurantTables error:', e);
+        await sendText(sock, from, `🪑 ${T(session, 'order_which_table')}\n\n${T(session, 'enter_table')}`);
+    }
+}
+
+async function handlePickTableForOrderState(sock, from, session, text) {
+    if (text === 'home' || text === '0') {
+        session.state = 'HOME';
+        delete session.pending_order_text;
+        delete session.pending_table_for;
+        delete session.order_tables;
+        await showHomeScreen(sock, from, session);
+        return;
+    }
+    let tableNumber = null;
+    let tableId = null;
+    const tables = session.order_tables || [];
+    if (session.menu_options && session.menu_options[text]) {
+        const tableKey = session.menu_options[text];
+        if (tableKey.startsWith('table_')) {
+            tableId = tableKey.replace('table_', '');
+            const t = tables.find(tbl => String(tbl.id) === String(tableId));
+            if (t) {
+                tableNumber = t.name;
+                tableId = String(t.id);
+            }
+        }
+    } else if (tables.length > 0) {
+        const t = tables.find(tbl => String(tbl.name) === String(text) || String(tbl.id) === String(text));
+        if (t) {
+            tableNumber = t.name;
+            tableId = String(t.id);
+        }
+    }
+    if (!tableNumber && !tableId) {
+        // Accept any table number as free text (e.g. "5") so order goes with that table even if not in list
+        const trimmed = String(text).trim();
+        if (trimmed.length > 0 && trimmed.length <= 20) {
+            session.table_number = trimmed;
+            session.table_id = null;
+        } else {
+            await sendText(sock, from, T(session, 'valid_table'));
+            return;
+        }
+    } else {
+        session.table_number = tableNumber || tableId;
+        session.table_id = tableId ? parseInt(tableId, 10) : null;
+    }
+    const forWhat = session.pending_table_for;
+    delete session.pending_table_for;
+    delete session.order_tables;
+
+    if (forWhat === 'text_order' && session.pending_order_text) {
+        const orderText = session.pending_order_text;
+        delete session.pending_order_text;
+        await sendText(sock, from, `🔄 ${T(session, 'processing_order')}`);
+        try {
+            const result = await api.createOrderText({
+                restaurant_id: session.restaurant_id,
+                table_id: session.table_id,
+                table_number: session.table_number,
+                waiter_id: session.waiter_id,
+                customer_name: session.customer_name,
+                customer_phone: from.split('@')[0],
+                order_text: orderText
+            });
+            if (result.success && result.order) {
+                session.active_order_id = result.order.id;
+                session.order_total = result.order.total;
+                session.cart = [];
+                let msg = `✅ *${T(session, 'order_received')}*\n`;
+                msg += `🧾 ${T(session, 'order_id')}${result.order.id}\n`;
+                msg += `🛒 *${T(session, 'items_found')}*\n`;
+                if (result.order.items && result.order.items.length > 0) {
+                    result.order.items.forEach(item => {
+                        msg += `• ${item.name} x${item.quantity} = ${item.total?.toLocaleString()}/=\n`;
+                    });
+                }
+                msg += `\n💰 *${T(session, 'total')} ${result.order.total?.toLocaleString()}/=*`;
+                msg += `\n\n${T(session, 'waiter_confirm')}`;
+                await sendButtons(sock, from, msg, [
+                    { id: 'go_payment', text: `💳 ${T(session, 'pay_now')}` },
+                    { id: 'track_order', text: `📍 ${T(session, 'track_status')}` },
+                    { id: 'home', text: `🏠 ${T(session, 'home')}` }
+                ], '🧾✨');
+                session.state = 'HOME';
+            } else {
+                await sendText(sock, from, result.message || T(session, 'error_order'));
+                session.state = 'MENU_IMAGE_ORDER';
+                await showMenuImage(sock, from, session);
+            }
+        } catch (e) {
+            console.error('Create order (text) error:', e);
+            await sendText(sock, from, '❌ ' + T(session, 'error_try_again'));
+            session.state = 'MENU_IMAGE_ORDER';
+            await showMenuImage(sock, from, session);
+        }
+        return;
+    }
+
+    if (forWhat === 'cart') {
+        await createOrder(sock, from, session);
+    }
+}
+
+async function handleCallWaiterAskTableState(sock, from, session, text) {
+    if (text === 'home') {
+        session.state = 'HOME';
+        await showHomeScreen(sock, from, session);
+        return;
+    }
+    let tableNumber = null;
+    let tableId = null;
+    if (session.menu_options && session.menu_options[text]) {
+        const tableKey = session.menu_options[text];
+        if (tableKey.startsWith('table_')) {
+            tableId = tableKey.replace('table_', '');
+            const t = (session.call_waiter_tables || []).find(tbl => String(tbl.id) === String(tableId));
+            if (t) {
+                tableNumber = t.name;
+            }
+        }
+    } else if (session.call_waiter_tables && session.call_waiter_tables.length > 0) {
+        const t = session.call_waiter_tables.find(tbl => String(tbl.name) === String(text) || String(tbl.id) === String(text));
+        if (t) {
+            tableNumber = t.name;
+            tableId = String(t.id);
+        }
+    }
+    if (tableNumber || tableId) {
+        if (tableNumber) session.table_number = tableNumber;
+        if (tableId) session.table_id = tableId;
+        const apiType = session.pending_call_type || 'call_waiter';
+        const label = session.pending_call_label || 'Call Waiter';
+        session.state = 'HOME';
+        await initiateCallWaiter(sock, from, session, apiType, label);
+    } else {
+        // Accept any table number as free text (e.g. "5") so waiter sees "Table 5" even if not in manager list
+        const trimmed = String(text).trim();
+        if (trimmed.length > 0 && trimmed.length <= 20) {
+            session.table_number = trimmed;
+            session.table_id = null;
+            const apiType = session.pending_call_type || 'call_waiter';
+            const label = session.pending_call_label || 'Call Waiter';
+            session.state = 'HOME';
+            await initiateCallWaiter(sock, from, session, apiType, label);
+        } else {
+            await sendText(sock, from, '❌ Andika namba ya meza (mf. 1, 2, 5) au chagua kutoka orodha.');
+            await showCallWaiterAskTable(sock, from, session);
+        }
+    }
+}
+
 async function initiateCallWaiter(sock, from, session, apiType, displayName) {
     try {
-        await api.callWaiter({
+        const payload = {
             restaurant_id: session.restaurant_id,
-            table_number: session.table_number,
-            waiter_id: session.waiter_id, // Added waiter_id for direct waiter calls
+            table_number: session.table_number || '',
+            waiter_id: session.waiter_id,
             request_type: apiType
-        });
+        };
+        if (session.table_id) payload.table_id = session.table_id;
+        await api.callWaiter(payload);
 
         await sendText(sock, from, `✅ Request for *${displayName}* sent! Waiter is coming shortly.`);
         await showHomeScreen(sock, from, session);
@@ -672,7 +915,12 @@ async function handleCartEditState(sock, from, session, text) {
 async function handleConfirmOrderState(sock, from, session, text) {
     switch (text) {
         case 'confirm_yes':
-            await createOrder(sock, from, session);
+            if (!session.table_number && !session.table_id) {
+                session.pending_table_for = 'cart';
+                await showOrderTableSelect(sock, from, session);
+            } else {
+                await createOrder(sock, from, session);
+            }
             break;
         case 'back_cart':
             await showCart(sock, from, session);
@@ -692,7 +940,7 @@ async function handlePaymentSummaryState(sock, from, session, text) {
             break;
         case 'pay_mobile':
             session.state = 'USSD_NUMBER';
-            await sendText(sock, from, '📱 Enter Mobile Money phone number\nExample: 0712345678');
+            await sendText(sock, from, `📱 ${T(session, 'enter_phone_billed')}`);
             break;
         case 'home':
             await showHomeScreen(sock, from, session);
@@ -721,10 +969,7 @@ async function handleProviderSelectState(sock, from, session, text) {
     if (text.startsWith('provider_')) {
         session.ussd_provider = text.replace('provider_', '');
         session.state = 'USSD_NUMBER';
-        await sendText(sock, from,
-            '📱 Enter Mobile Money phone number\n' +
-            'Example: 0712345678 or 255712345678'
-        );
+        await sendText(sock, from, `📱 ${T(session, 'enter_phone_billed')}`);
     } else if (text === 'back_payment') {
         await showPaymentSummary(sock, from, session);
     }
@@ -838,15 +1083,12 @@ async function handleFeedbackState(sock, from, session, text) {
         session.rating = parseInt(rating);
         session.state = 'FEEDBACK_COMMENT';
 
-        const target = session.feedback_waiter_name ? `for *${session.feedback_waiter_name}*` : 'for our service';
-        await sendText(sock, from,
-            `📝 Any comments ${target}?\n\n(Type comment or "skip" to continue)`
-        );
+        await sendText(sock, from, `📝 ${T(session, 'comment_prompt')}`);
     }
 }
 
 async function handleFeedbackCommentState(sock, from, session, text) {
-    const comment = text.toLowerCase() === 'skip' ? '' : text;
+    const comment = (text.toLowerCase() === 'end' || text.toLowerCase() === 'skip') ? '' : text;
 
     try {
         await api.submitFeedback({
@@ -860,7 +1102,7 @@ async function handleFeedbackCommentState(sock, from, session, text) {
         console.error('Feedback error:', e);
     }
 
-    await sendText(sock, from, '🙏 Thanks for your feedback!');
+    await sendText(sock, from, `🙏 ${T(session, 'thanks_feedback')}`);
     await showHomeScreen(sock, from, session);
 }
 
@@ -885,9 +1127,7 @@ async function handleTipState(sock, from, session, text) {
             }
         }
 
-        await sendText(sock, from,
-            '🎉 Thanks for using TIPTAP!\n\nWelcome again! 👋'
-        );
+        await sendText(sock, from, `🎉 ${T(session, 'thanks_using_tiptap')}`);
         await showHomeScreen(sock, from, session);
     }
 }
@@ -906,35 +1146,59 @@ async function showHomeScreen(sock, from, session) {
     session.quick_payment_desc = null;
 
     const name = session.restaurant_name || 'Restaurant';
-    // Determine what to show in brackets (Waiter Name or Table Number)
-    // Priority: Explicit header_info > Waiter Name > Table Number
-    const info = session.header_info || session.waiter_name || (session.table_number ? `Table ${session.table_number}` : '-');
+    const info = session.header_info || session.waiter_name || (session.table_number ? `${T(session, 'table')} ${session.table_number}` : '-');
 
     const rows = [
-        { id: 'view_menu', title: '🍽️ View Our Menu', description: 'View menu and order' },
-        { id: 'rate_service', title: session.waiter_name ? `⭐ Rate ${session.waiter_name.toUpperCase()}` : '⭐ Rate Service', description: 'Give feedback' },
-        { id: 'live_bill', title: '💳 Pay Bill', description: 'Pay your bill' },
-        { id: 'give_tips', title: session.waiter_name ? `💵 Tip ${session.waiter_name.toUpperCase()}` : '💵 Tip', description: 'Tip the waiter' }
+        { id: 'view_menu', title: `🍽️ ${T(session, 'menu_view')}`, description: T(session, 'menu_view_desc') },
+        { id: 'rate_service', title: session.waiter_name ? `⭐ ${T(session, 'rate_service')} ${session.waiter_name.toUpperCase()}` : `⭐ ${T(session, 'rate_service')}`, description: T(session, 'rate_desc') },
+        { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'pay_bill_desc') },
+        { id: 'give_tips', title: session.waiter_name ? `💵 ${T(session, 'tip')} ${session.waiter_name.toUpperCase()}` : `💵 ${T(session, 'tip')}`, description: T(session, 'tip_desc') }
     ];
 
-    // Add "Call Waiter" option only if a waiter is assigned
     if (session.waiter_id) {
-        rows.push({ id: 'call_waiter', title: '🔔 Call Waiter', description: 'Request assistance' });
+        rows.push({ id: 'call_waiter', title: `🔔 ${T(session, 'call_waiter')}`, description: T(session, 'call_waiter_desc') });
     }
 
-    rows.push({ id: 'exit_bot', title: '❌ Exit', description: 'Leave' });
+    if (session.support_phone) {
+        rows.push({ id: 'customer_support', title: `📞 ${T(session, 'customer_support')}`, description: T(session, 'customer_support_desc') });
+    }
+
+    rows.push({ id: 'change_language', title: `🌐 ${T(session, 'change_language')}`, description: T(session, 'change_language_desc') });
+    rows.push({ id: 'exit_bot', title: `❌ ${T(session, 'exit')}`, description: T(session, 'exit_desc') });
 
     await sendList(sock, from,
-        `👋 Welcome to *${name}* (${info})\nChoose service:`,
+        `👋 ${T(session, 'home_welcome')} *${name}* (${info})\n${T(session, 'home_choose')}\n_${T(session, 'home_type_zero')}_`,
         'Service',
         [
             {
-                title: '🍽️ MAIN SERVICES',
+                title: `🍽️ ${T(session, 'home_main_services')}`,
                 rows: rows
             }
         ],
         '🏠✨'
     );
+}
+
+async function showLanguageSelect(sock, from, session) {
+    session.state = 'LANGUAGE_SELECT';
+    await sendButtons(sock, from, T(session, 'select_language'), [
+        { id: 'lang_en', text: `🇬🇧 ${T(session, 'lang_english')}` },
+        { id: 'lang_sw', text: `🇹🇿 ${T(session, 'lang_swahili')}` }
+    ], '🌐');
+}
+
+async function handleLanguageSelectState(sock, from, session, text) {
+    if (text === 'lang_en') {
+        session.lang = 'en';
+        await sendText(sock, from, T(session, 'language_changed'));
+        await showHomeScreen(sock, from, session);
+    } else if (text === 'lang_sw') {
+        session.lang = 'sw';
+        await sendText(sock, from, T(session, 'language_changed_sw'));
+        await showHomeScreen(sock, from, session);
+    } else {
+        await showLanguageSelect(sock, from, session);
+    }
 }
 
 async function showTableSelection(sock, from, session) {
@@ -1329,7 +1593,7 @@ async function initiateUssdPayment(sock, from, session) {
             await sendButtons(sock, from,
                 '📲 *Request Sent!*\n' +
                 'Confirm on your phone.\n\n' +
-                '✅ *Bot will confirm automatically* once payment is received.',
+                `✅ *${T(session, 'bot_confirm_auto')}*`,
                 [
                     { id: 'manual_ussd', text: '📟 Manual' },
                     { id: 'home', text: '🏠 Home' }
@@ -1598,28 +1862,42 @@ async function handleMenuSelectionState(sock, from, session, text) {
 
 async function showMenuImage(sock, from, session) {
     session.state = 'MENU_IMAGE_ORDER';
-    await sendText(sock, from, '🔄 Downloading menu image...');
+    await sendText(sock, from, `🔄 ${T(session, 'downloading_menu')}`);
 
     const result = await api.getMenuImage(session.restaurant_id);
     if (result.success && result.data.menu_image_url) {
-        await sendImageWithButtons(sock, from, result.data.menu_image_url,
-            '👆 Here is our menu!',
-            [{ id: 'home', text: '🏠 Home' }],
-            '🖼️✨'
-        );
+        const cmdZero = T(session, 'menu_cmd_zero');
+        const cmdOrder = T(session, 'menu_cmd_order');
+        const caption = `👆 ${T(session, 'here_is_menu')}\n\n*${T(session, 'menu_commands')}*\n• ${cmdZero}\n• ${cmdOrder}`;
+        try {
+            await sock.sendMessage(from, { image: { url: result.data.menu_image_url }, caption: caption });
+        } catch (e) {
+            await sendText(sock, from, caption);
+        }
+        // No extra "Choose: 1 Home (0)" bubble — user types 0 to go back (see caption).
     } else {
-        await sendText(sock, from, '❌ Sorry, menu image not available.');
-        await showMenuSelection(sock, from, session);
+        await sendText(sock, from, `❌ ${T(session, 'menu_not_available')}`);
+        session.state = 'HOME';
+        await showHomeScreen(sock, from, session);
     }
 }
 
 async function handleMenuImageOrderState(sock, from, session, text) {
-    if (text === 'home') {
+    // 0 or home = back to main menu (0 is also handled globally)
+    if (text === 'home' || text === '0') {
         await showHomeScreen(sock, from, session);
         return;
     }
 
-    await sendText(sock, from, '🔄 Processing your order...');
+    // If table not set (e.g. came via waiter QR), ask which table before submitting order
+    if (!session.table_number && !session.table_id) {
+        session.pending_order_text = text;
+        session.pending_table_for = 'text_order';
+        await showOrderTableSelect(sock, from, session);
+        return;
+    }
+
+    await sendText(sock, from, `🔄 ${T(session, 'processing_order')}`);
 
     try {
         const result = await api.createOrderText({
@@ -1638,9 +1916,9 @@ async function handleMenuImageOrderState(sock, from, session, text) {
                 session.order_total = result.order.total;
                 session.cart = []; // Clear cart if any
 
-                let msg = `✅ *Order Received!*\n`;
-                msg += `🧾 Order #${result.order.id}\n`;
-                msg += `🛒 *Items found:*\n`;
+                let msg = `✅ *${T(session, 'order_received')}*\n`;
+                msg += `🧾 ${T(session, 'order_id')}${result.order.id}\n`;
+                msg += `🛒 *${T(session, 'items_found')}*\n`;
 
                 if (result.order.items && result.order.items.length > 0) {
                     result.order.items.forEach(item => {
@@ -1648,13 +1926,13 @@ async function handleMenuImageOrderState(sock, from, session, text) {
                     });
                 }
 
-                msg += `\n💰 *Total: ${result.order.total?.toLocaleString()}/=*`;
-                msg += `\n\nWaiter is coming to confirm...`;
+                msg += `\n💰 *${T(session, 'total')} ${result.order.total?.toLocaleString()}/=*`;
+                msg += `\n\n${T(session, 'waiter_confirm')}`;
 
                 await sendButtons(sock, from, msg, [
-                    { id: 'go_payment', text: '💳 Pay Now' },
-                    { id: 'track_order', text: '📍 Track Status' },
-                    { id: 'home', text: '🏠 Home' }
+                    { id: 'go_payment', text: `💳 ${T(session, 'pay_now')}` },
+                    { id: 'track_order', text: `📍 ${T(session, 'track_status')}` },
+                    { id: 'home', text: `🏠 ${T(session, 'home')}` }
                 ], '🧾✨');
             } else {
                 // Handle success but no order object (e.g. just a message)
@@ -1664,10 +1942,9 @@ async function handleMenuImageOrderState(sock, from, session, text) {
 
             session.state = 'HOME';
         } else {
-            await sendText(sock, from, `❌ ${result.message || 'We could not understand your order.'}\n\nPlease try to type clearly (e.g., "Chips 2, Soda 1") or use the List Menu.`);
-            await sendButtons(sock, from, 'Choose:', [
-                { id: 'menu_list', text: '📋 Use List Menu' },
-                { id: 'home', text: '🏠 Home' }
+            await sendText(sock, from, `❌ ${result.message || T(session, 'error_order')}\n\n${T(session, 'try_clear')}`);
+            await sendButtons(sock, from, T(session, 'choose'), [
+                { id: 'home', text: `🏠 ${T(session, 'home_btn')}` }
             ]);
         }
     } catch (e) {
@@ -1707,8 +1984,10 @@ async function showLiveBillOptions(sock, from, session) {
 async function showQuickPaymentPhone(sock, from, session) {
     session.state = 'QUICK_PAYMENT_PHONE';
     const msg = session.tip_waiter_id
-        ? '📱 Enter phone number to tip (e.g., 0712345678):'
-        : '📱 Enter phone number to pay (e.g., 0712345678):';
+        ? `📱 ${T(session, 'enter_phone_tip')}`
+        : session.quick_payment_desc === 'Bill Payment'
+            ? `📱 ${T(session, 'enter_phone_billed')}`
+            : `📱 ${T(session, 'enter_phone_pay')}`;
     await sendText(sock, from, msg);
 }
 
@@ -1717,15 +1996,15 @@ async function handleQuickPaymentPhoneState(sock, from, session, text) {
         session.ussd_phone = text.startsWith('255') ? '0' + text.slice(3) : text;
         await initiateQuickPayment(sock, from, session);
     } else {
-        await sendText(sock, from, '❌ Invalid number. Try again.');
+        await sendText(sock, from, `❌ ${T(session, 'invalid_number')}`);
     }
 }
 
 async function showQuickPaymentAmount(sock, from, session) {
     session.state = 'QUICK_PAYMENT_AMOUNT';
     const msg = session.tip_waiter_id && session.tip_waiter_name
-        ? `💰 Tip ${session.tip_waiter_name.toUpperCase()} (Tsh):`
-        : '💰 Enter amount to pay (Tsh):';
+        ? `💰 ${T(session, 'tip_amount')} ${session.tip_waiter_name.toUpperCase()} (Tsh):`
+        : `💰 ${T(session, 'enter_amount')}`;
     await sendText(sock, from, msg);
 }
 
@@ -1735,12 +2014,12 @@ async function handleQuickPaymentAmountState(sock, from, session, text) {
         session.quick_payment_amount = amount;
         await showQuickPaymentPhone(sock, from, session);
     } else {
-        await sendText(sock, from, '❌ Invalid amount. Enter numbers only.');
+        await sendText(sock, from, `❌ ${T(session, 'invalid_amount')}`);
     }
 }
 
 async function initiateQuickPayment(sock, from, session) {
-    await sendText(sock, from, '🔄 Sending payment request...');
+    await sendText(sock, from, `🔄 ${T(session, 'sending_request')}`);
     try {
         const payload = {
             restaurant_id: session.restaurant_id,
@@ -1756,12 +2035,12 @@ async function initiateQuickPayment(sock, from, session) {
             session.quick_payment_id = result.payment_id;
             session.state = 'QUICK_PAYMENT_PENDING';
             await sendButtons(sock, from,
-                `✅ Request sent to ${session.ussd_phone}!\n\n` +
+                `✅ ${T(session, 'request_sent')} ${session.ussd_phone}!\n\n` +
                 `Amount: ${session.quick_payment_amount}/=\n\n` +
-                `Please confirm on your phone.\n` +
-                `✅ *Bot will confirm automatically* once payment is received.`,
+                `${T(session, 'confirm_on_phone')}\n` +
+                `✅ *${T(session, 'bot_confirm_auto')}*`,
                 [
-                    { id: 'home', text: '🏠 Home' }
+                    { id: 'home', text: `🏠 ${T(session, 'home')}` }
                 ],
                 '💳✨'
             );

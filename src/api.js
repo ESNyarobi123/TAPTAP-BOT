@@ -141,7 +141,7 @@ module.exports = {
             const res2 = await api.get('/tables', { params: { restaurant_id: restaurantId } });
             return res2.data;
         } catch (e) {
-            console.log('Bot tables API failed, falling back to manager API...');
+            console.log('TipTap tables API failed, falling back to manager API...');
             return module.exports.getManagerTables();
         }
     },
@@ -217,10 +217,11 @@ module.exports = {
         const payload = {
             restaurant_id: data.restaurant_id,
             type: data.request_type, // 'call_waiter' or 'request_bill'
-            table_number: data.table_number || "" // Always send the key, even if empty
+            table_number: data.table_number || ""
         };
 
         if (data.waiter_id) payload.waiter_id = data.waiter_id;
+        if (data.table_id) payload.table_id = data.table_id;
 
         const response = await api.post('/call-waiter', payload);
         return response.data;
