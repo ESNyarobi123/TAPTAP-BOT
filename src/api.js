@@ -94,6 +94,7 @@ module.exports = {
         };
 
         if (orderData.table_id) payload.table_id = orderData.table_id;
+        payload.whatsapp_jid = orderData.whatsapp_jid ?? null;
 
         const response = await api.post('/order', payload);
         return response.data;
@@ -116,6 +117,7 @@ module.exports = {
             if (data.table_number) payload.table_number = data.table_number;
             if (data.waiter_id) payload.waiter_id = data.waiter_id;
             if (data.customer_name) payload.customer_name = data.customer_name;
+            payload.whatsapp_jid = data.whatsapp_jid ?? null;
 
             const response = await api.post('/order/text', payload);
             return response.data;

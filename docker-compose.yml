@@ -6,4 +6,5 @@ services:
     env_file:
       - .env
     ports:
+      # Cloud API v2: webhook, inbound, and notify share PORT (default 3000).
       - "3000:3000"

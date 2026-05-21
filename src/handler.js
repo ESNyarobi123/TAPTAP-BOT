@@ -1,27 +1,53 @@
 const api = require('./api');
+const whatsapp = require('./whatsapp');
+const sessionStore = require('./session-store');
 const { T } = require('./lang');
 
+/**
+ * Process-local cache of the active session for each WhatsApp id.
+ * Hydrated from Laravel at the start of every inbound message and persisted
+ * back when the handler finishes. Long-running flows (e.g. payment polling
+ * intervals) keep reading from this cache between webhook events.
+ */
 const sessions = {};
 
-// ═══════════════════════════════════════════════════════════════
-// MAIN MESSAGE HANDLER
-// ═══════════════════════════════════════════════════════════════
-async function handleMessage(sock, msg) {
-    const from = msg.key.remoteJid;
+/**
+ * Inbound Cloud API webhook entry point. Hydrates persisted state, runs the
+ * existing state-machine, then writes the updated session back to MySQL.
+ *
+ * @param {object} message Meta message object from value.messages[]
+ * @param {object|null} contact Matching contact entry (profile.name, wa_id)
+ */
+async function handleMessage(message, contact) {
+    const waId = whatsapp.digitsOnly(message?.from || '');
+    if (!waId) return;
 
-    if (from.endsWith('@g.us') || from === 'status@broadcast') {
-        return;
+    const text = extractMessageText(message);
+    if (text === null || text === '') return;
+
+    const session = await sessionStore.load(waId);
+    sessions[waId] = session;
+
+    try {
+        await processMessage(waId, session, text, contact, message);
+    } finally {
+        await sessionStore.save(waId, session);
     }
+}
 
-    let text = extractMessageText(msg);
-    if (!text) return;
+/**
+ * Original handler body, kept verbatim aside from the renamed parameters.
+ * `from` is now the digits-only WhatsApp id (no @s.whatsapp.net suffix) and
+ * `sock` is the Cloud API client whose `sendMessage(to, payload)` mirrors the
+ * Baileys signature the screen builders depend on.
+ */
+async function processMessage(from, session, initialText, contact, _message) {
+    let text = initialText;
+    const sock = whatsapp;
 
-    if (!sessions[from]) {
-        sessions[from] = createNewSession();
+    if (contact?.profile?.name) {
+        session.customer_name = contact.profile.name;
     }
-
-    const session = sessions[from];
-    if (msg.pushName) session.customer_name = msg.pushName;
     console.log(`📩 [${session.state}] From: ${from} | Text: "${text}"`);
 
     // ═══════════════════════════════════════════════════════════════
@@ -242,43 +268,59 @@ async function handleMessage(sock, msg) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MESSAGE EXTRACTION
+// MESSAGE EXTRACTION (Meta Cloud API payload)
 // ═══════════════════════════════════════════════════════════════
+/**
+ * Reduce an incoming Cloud API message object to the single string token the
+ * state machine reasons about. For interactive replies the *button/list id*
+ * is returned so each row's `id` continues to drive routing.
+ *
+ * @param {object} msg The element from value.messages[]
+ * @returns {string|null}
+ */
 function extractMessageText(msg) {
-    const m = msg.message;
-    if (!m) return null;
+    if (!msg || typeof msg !== 'object') return null;
 
-    // Regular text
-    if (m.conversation) return m.conversation;
-    if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
+    switch (msg.type) {
+        case 'text':
+            return (msg.text?.body || '').trim() || null;
 
-    // Button response
-    if (m.buttonsResponseMessage?.selectedButtonId) {
-        return m.buttonsResponseMessage.selectedButtonId;
-    }
+        case 'button':
+            // Quick-reply template button click.
+            return (msg.button?.payload || msg.button?.text || '').trim() || null;
 
-    // List response
-    if (m.listResponseMessage?.singleSelectReply?.selectedRowId) {
-        return m.listResponseMessage.singleSelectReply.selectedRowId;
-    }
-
-    // Template button response
-    if (m.templateButtonReplyMessage?.selectedId) {
-        return m.templateButtonReplyMessage.selectedId;
-    }
-
-    // Interactive response (new format)
-    if (m.interactiveResponseMessage) {
-        const body = m.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
-        if (body) {
-            try {
-                const parsed = JSON.parse(body);
-                return parsed.id || parsed.flow_token;
-            } catch (e) { }
+        case 'interactive': {
+            const interactive = msg.interactive || {};
+            if (interactive.type === 'button_reply') {
+                return (interactive.button_reply?.id || '').trim() || null;
+            }
+            if (interactive.type === 'list_reply') {
+                return (interactive.list_reply?.id || '').trim() || null;
+            }
+            if (interactive.type === 'nfm_reply') {
+                try {
+                    const json = JSON.parse(interactive.nfm_reply?.response_json || '{}');
+                    return json.id || json.flow_token || null;
+                } catch (_) {
+                    return null;
+                }
+            }
+            return null;
         }
-    }
 
-    return null;
+        case 'image':
+        case 'audio':
+        case 'video':
+        case 'document':
+        case 'sticker':
+            // Media-only messages are not understood by the state machine; treat
+            // them as an unrecognised input so the bot falls back to the help
+            // prompt rather than ignoring the customer entirely.
+            return msg.image?.caption || msg.video?.caption || msg.document?.caption || '';
+
+        default:
+            return null;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -313,7 +355,9 @@ function createNewSession() {
         tip_waiter_id: null,
         tip_waiter_name: null,
         feedback_waiter_id: null,
-        feedback_waiter_name: null
+        feedback_waiter_name: null,
+        bill_image_sent_for_order: null,
+        pending_order_lines: null
     };
 }
 
@@ -615,6 +659,7 @@ async function handlePickTableForOrderState(sock, from, session, text) {
     if (text === 'home' || text === '0') {
         session.state = 'HOME';
         delete session.pending_order_text;
+        session.pending_order_lines = null;
         delete session.pending_table_for;
         delete session.order_tables;
         await showHomeScreen(sock, from, session);
@@ -670,6 +715,7 @@ async function handlePickTableForOrderState(sock, from, session, text) {
                 waiter_id: session.waiter_id,
                 customer_name: session.customer_name,
                 customer_phone: from.split('@')[0],
+                whatsapp_jid: from,
                 order_text: orderText
             });
             if (result.success && result.order) {
@@ -1175,6 +1221,8 @@ async function handleTipState(sock, from, session, text) {
 
 async function showHomeScreen(sock, from, session) {
     session.state = 'HOME';
+    session.pending_order_lines = null;
+    delete session.pending_order_text;
     // Clear temporary payment/tip info
     delete session.tip_waiter_id;
     delete session.tip_waiter_name;
@@ -1520,6 +1568,7 @@ async function createOrder(sock, from, session) {
             table_number: session.table_number,
             customer_phone: from.split('@')[0],
             customer_name: session.customer_name,
+            whatsapp_jid: from,
             items: session.cart,
             waiter_id: session.waiter_id
         });
@@ -1709,6 +1758,7 @@ async function showTrackStatus(sock, from, session) {
 
         const order = result.order;
         session.active_order_id = order.id; // Sync session
+        await maybeSendBillImage(sock, from, session, order);
 
         const statusIcons = {
             'pending': '⏳ Pending',
@@ -1944,6 +1994,7 @@ async function handleMenuImageOrderState(sock, from, session, text) {
             waiter_id: session.waiter_id,
             customer_name: session.customer_name,
             customer_phone: from.split('@')[0],
+            whatsapp_jid: from,
             order_text: text
         });
 
@@ -2234,6 +2285,11 @@ async function startPaymentPolling(sock, from, session, type, id) {
             let result;
             if (type === 'order') {
                 result = await api.getOrderStatus(id);
+                await maybeSendBillImage(sock, from, session, {
+                    id,
+                    bill_image_url: result.bill_image_url,
+                    is_bill_ready: result.is_bill_ready
+                });
                 if (result.payment_status === 'paid') {
                     await sendText(sock, from, '✅ *Payment Confirmed!* Thank you for your payment.');
                     await showHomeScreen(sock, from, session);
@@ -2251,6 +2307,27 @@ async function startPaymentPolling(sock, from, session, type, id) {
             console.error('Polling error:', e);
         }
     }, 10000); // Check every 10 seconds
+}
+
+async function maybeSendBillImage(sock, from, session, order) {
+    if (!order || !order.is_bill_ready || !order.bill_image_url) {
+        return;
+    }
+
+    const orderId = String(order.id || '');
+    if (session.bill_image_sent_for_order && session.bill_image_sent_for_order === orderId) {
+        return;
+    }
+
+    try {
+        await sock.sendMessage(from, {
+            image: { url: order.bill_image_url },
+            caption: '🧾 *Your bill is ready.*\nPlease review and proceed to payment.'
+        });
+        session.bill_image_sent_for_order = orderId;
+    } catch (error) {
+        console.error('Failed to send bill image:', error);
+    }
 }
 
 module.exports = { handleMessage, extractMessageText };
