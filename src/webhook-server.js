@@ -71,6 +71,7 @@ async function handleEvent(payload) {
                         recipient,
                         messageId,
                         errors,
+                        details: errors?.[0]?.error_data?.details ?? null,
                     });
                 } else if (state === 'delivered' || state === 'read') {
                     console.log(`✅ WhatsApp ${state}: ${recipient} (${messageId || 'no id'})`);

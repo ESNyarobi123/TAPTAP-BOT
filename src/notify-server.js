@@ -74,7 +74,7 @@ function registerNotifyRoutes(app) {
                 ok: false,
                 error: 'send_failed',
                 detail,
-                hint: 'Most common: phone number not opted-in (24h session), bill_image_url not publicly reachable over HTTPS, or access token expired.',
+                hint: 'Meta could not fetch or process the bill image (131053). The bot now uploads JPEG to Meta directly; retry Resend bill.',
             });
         }
     });

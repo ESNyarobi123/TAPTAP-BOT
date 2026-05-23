@@ -5,6 +5,7 @@
  */
 
 const axios = require('axios');
+const FormData = require('form-data');
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const GRAPH_VERSION = process.env.WHATSAPP_GRAPH_VERSION || 'v20.0';
@@ -101,13 +102,71 @@ async function sendText(to, body) {
     });
 }
 
+async function downloadMediaFromUrl(link) {
+    const response = await axios.get(link, {
+        responseType: 'arraybuffer',
+        timeout: 45000,
+        maxContentLength: 5 * 1024 * 1024,
+        maxRedirects: 5,
+        headers: {
+            Accept: 'image/jpeg,image/png,*/*',
+            'User-Agent': 'TipTapWhatsAppBot/2.0',
+        },
+        validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    const contentType = String(response.headers['content-type'] || 'image/jpeg').split(';')[0].trim().toLowerCase();
+    const mimeType = contentType === 'image/png' ? 'image/png' : 'image/jpeg';
+
+    return {
+        buffer: Buffer.from(response.data),
+        mimeType,
+    };
+}
+
+async function uploadWhatsAppMedia(buffer, mimeType) {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mimeType);
+    form.append('file', buffer, {
+        filename: mimeType === 'image/png' ? 'bill.png' : 'bill.jpg',
+        contentType: mimeType,
+    });
+
+    const { data } = await axios.post(
+        `https://graph.facebook.com/${GRAPH_VERSION}/${PHONE_ID}/media`,
+        form,
+        {
+            headers: {
+                Authorization: `Bearer ${ACCESS_TOKEN}`,
+                ...form.getHeaders(),
+            },
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+            timeout: 60000,
+        },
+    );
+
+    if (!data?.id) {
+        throw new Error('Media upload did not return an id');
+    }
+
+    return data.id;
+}
+
 async function sendImage(to, link, caption) {
+    const { buffer, mimeType } = await downloadMediaFromUrl(link);
+    const mediaId = await uploadWhatsAppMedia(buffer, mimeType);
+
     return sendRaw({
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         to: digitsOnly(to),
         type: 'image',
-        image: { link, ...(caption ? { caption } : {}) },
+        image: {
+            id: mediaId,
+            ...(caption ? { caption } : {}),
+        },
     });
 }
 
