@@ -58,6 +58,24 @@ async function handleEvent(payload) {
                     console.error('handleMessage failed:', error.response?.data || error.message);
                 }
             }
+
+            const statuses = Array.isArray(value.statuses) ? value.statuses : [];
+            for (const status of statuses) {
+                const state = status?.status;
+                const recipient = status?.recipient_id;
+                const messageId = status?.id;
+                const errors = status?.errors;
+
+                if (state === 'failed') {
+                    console.error('❌ WhatsApp delivery failed:', {
+                        recipient,
+                        messageId,
+                        errors,
+                    });
+                } else if (state === 'delivered' || state === 'read') {
+                    console.log(`✅ WhatsApp ${state}: ${recipient} (${messageId || 'no id'})`);
+                }
+            }
         }
     }
 }

@@ -30,7 +30,14 @@ function registerNotifyRoutes(app) {
             return res.status(401).json({ ok: false, error: 'unauthorized' });
         }
 
-        const { event, jid, order_id: orderId, bill_image_url: billImageUrl, caption } = req.body || {};
+        const {
+            event,
+            jid,
+            order_id: orderId,
+            bill_image_url: billImageUrl,
+            caption,
+            force,
+        } = req.body || {};
 
         if (event !== 'bill_image') {
             return res.status(400).json({ ok: false, error: 'unsupported_event' });
@@ -40,21 +47,25 @@ function registerNotifyRoutes(app) {
             return res.status(422).json({ ok: false, error: 'missing_fields' });
         }
 
+        const recipient = whatsapp.digitsOnly(jid);
         const dedupeKey = `bill:${orderId}`;
-        if (sentBillImageOrders.has(dedupeKey)) {
-            return res.json({ ok: true, deduped: true });
+        const shouldForce = force === true || force === 'true' || force === 1 || force === '1';
+
+        if (!shouldForce && sentBillImageOrders.has(dedupeKey)) {
+            return res.json({ ok: true, deduped: true, recipient });
         }
 
         try {
-            await whatsapp.sendImage(
-                whatsapp.digitsOnly(jid),
+            const graphResult = await whatsapp.sendImage(
+                recipient,
                 billImageUrl,
                 caption || '🧾 Your bill is ready.',
             );
 
             sentBillImageOrders.add(dedupeKey);
-            console.log(`📤 Pushed bill image to ${jid} for order #${orderId}`);
-            return res.json({ ok: true });
+            const messageId = graphResult?.messages?.[0]?.id ?? null;
+            console.log(`📤 Pushed bill image to ${recipient} for order #${orderId}${messageId ? ` (msg ${messageId})` : ''}`);
+            return res.json({ ok: true, recipient, message_id: messageId });
         } catch (error) {
             const raw = String(error?.response?.data?.error?.message || error?.message || 'unknown');
             console.error('Notify endpoint failed to send bill image:', raw);
