@@ -1,17 +1,7 @@
 /**
  * WhatsApp Cloud API (Meta) client.
  *
- * Replaces the Baileys socket. Exposes a single `sendMessage(to, payload)`
- * function whose signature matches the bits of Baileys we relied on, so the
- * existing state machine in handler.js does not need to change.
- *
- * Supported payload shapes:
- *   { text: 'hello' }
- *   { image: { url: 'https://...' }, caption: '...' }
- *
- * The `to` argument may be either a digits-only WA id (e.g. "255712345678")
- * or a legacy Baileys JID ("255712345678@s.whatsapp.net"). Both are coerced
- * to the digits-only form Cloud API expects.
+ * Outbound helpers for text, images, and native interactive UI (buttons + lists).
  */
 
 const axios = require('axios');
@@ -20,6 +10,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const GRAPH_VERSION = process.env.WHATSAPP_GRAPH_VERSION || 'v20.0';
 const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+const USE_INTERACTIVE = process.env.USE_INTERACTIVE_MENU !== 'false';
 
 if (!PHONE_ID || !ACCESS_TOKEN) {
     console.warn('⚠️  WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN are not set. Outbound messages will fail.');
@@ -47,17 +38,64 @@ function digitsOnly(value) {
     return String(value || '').replace(/\D/g, '');
 }
 
+function truncateText(value, max) {
+    const cleaned = String(value || '').replace(/\s+/g, ' ').trim();
+    if (cleaned.length <= max) {
+        return cleaned;
+    }
+
+    return `${cleaned.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function normalizeSections(sections) {
+    const normalized = [];
+    let totalRows = 0;
+
+    for (const section of sections || []) {
+        const rows = [];
+
+        for (const row of section.rows || []) {
+            rows.push({
+                id: String(row.id).slice(0, 200),
+                title: truncateText(row.title, 24),
+                ...(row.description ? { description: truncateText(row.description, 72) } : {}),
+            });
+            totalRows++;
+
+            if (totalRows >= 10) {
+                break;
+            }
+        }
+
+        if (rows.length > 0) {
+            normalized.push({
+                title: truncateText(section.title || 'Options', 24),
+                rows,
+            });
+        }
+
+        if (totalRows >= 10) {
+            break;
+        }
+    }
+
+    return normalized.length > 0 ? normalized : [{ title: 'Options', rows: [] }];
+}
+
 async function sendRaw(payload) {
     const { data } = await graph.post(`/${PHONE_ID}/messages`, payload);
     return data;
 }
 
 async function sendText(to, body) {
-    if (!body) return null;
+    if (!body) {
+        return null;
+    }
+
     return sendRaw({
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        to: digitsOnly(to),
         type: 'text',
         text: { body, preview_url: false },
     });
@@ -67,15 +105,77 @@ async function sendImage(to, link, caption) {
     return sendRaw({
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        to: digitsOnly(to),
         type: 'image',
         image: { link, ...(caption ? { caption } : {}) },
     });
 }
 
+async function sendInteractiveButtons(to, { header, body, footer, buttons }) {
+    const actionButtons = (buttons || []).slice(0, 3).map((button) => ({
+        type: 'reply',
+        reply: {
+            id: String(button.id).slice(0, 256),
+            title: truncateText(button.title || button.text, 20),
+        },
+    }));
+
+    if (actionButtons.length === 0) {
+        throw new Error('sendInteractiveButtons: at least one button is required');
+    }
+
+    const interactive = {
+        type: 'button',
+        body: { text: truncateText(body, 1024) },
+        action: { buttons: actionButtons },
+    };
+
+    if (header) {
+        interactive.header = { type: 'text', text: truncateText(header, 60) };
+    }
+
+    if (footer) {
+        interactive.footer = { text: truncateText(footer, 60) };
+    }
+
+    return sendRaw({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: digitsOnly(to),
+        type: 'interactive',
+        interactive,
+    });
+}
+
+async function sendInteractiveList(to, { header, body, footer, buttonText, sections }) {
+    const interactive = {
+        type: 'list',
+        body: { text: truncateText(body, 1024) },
+        action: {
+            button: truncateText(buttonText || 'Choose', 20),
+            sections: normalizeSections(sections),
+        },
+    };
+
+    if (header) {
+        interactive.header = { type: 'text', text: truncateText(header, 60) };
+    }
+
+    if (footer) {
+        interactive.footer = { text: truncateText(footer, 60) };
+    }
+
+    return sendRaw({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: digitsOnly(to),
+        type: 'interactive',
+        interactive,
+    });
+}
+
 /**
- * Baileys-compatible facade. The legacy handler calls `sock.sendMessage(jid, payload)`;
- * we route that into the appropriate Cloud API endpoint based on the payload shape.
+ * Baileys-compatible facade used by handler.js.
  */
 async function sendMessage(rawTo, payload) {
     const to = digitsOnly(rawTo);
@@ -87,6 +187,14 @@ async function sendMessage(rawTo, payload) {
         return await sendImage(to, payload.image.url, payload.caption);
     }
 
+    if (payload?.interactive?.type === 'button') {
+        return await sendInteractiveButtons(to, payload.interactive);
+    }
+
+    if (payload?.interactive?.type === 'list') {
+        return await sendInteractiveList(to, payload.interactive);
+    }
+
     if (typeof payload?.text === 'string') {
         return await sendText(to, payload.text);
     }
@@ -94,12 +202,11 @@ async function sendMessage(rawTo, payload) {
     throw new Error(`sendMessage: unsupported payload shape (${Object.keys(payload || {}).join(',')})`);
 }
 
-/**
- * Acknowledge an inbound message so the customer sees "read" ticks.
- * Optional — failures are logged but do not bubble up.
- */
 async function markRead(messageId) {
-    if (!messageId) return;
+    if (!messageId) {
+        return;
+    }
+
     try {
         await sendRaw({
             messaging_product: 'whatsapp',
@@ -107,7 +214,7 @@ async function markRead(messageId) {
             message_id: messageId,
         });
     } catch (_) {
-        // best-effort, ignore
+        // best-effort
     }
 }
 
@@ -115,6 +222,10 @@ module.exports = {
     sendMessage,
     sendText,
     sendImage,
+    sendInteractiveButtons,
+    sendInteractiveList,
     markRead,
     digitsOnly,
+    truncateText,
+    USE_INTERACTIVE,
 };

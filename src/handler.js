@@ -1235,9 +1235,17 @@ async function showHomeScreen(sock, from, session) {
 
     const rows = [
         { id: 'view_menu', title: `🍽️ ${T(session, 'menu_view')}`, description: T(session, 'menu_view_desc') },
-        { id: 'rate_service', title: session.waiter_name ? `⭐ ${T(session, 'rate_service')} ${session.waiter_name.toUpperCase()}` : `⭐ ${T(session, 'rate_service')}`, description: T(session, 'rate_desc') },
+        {
+            id: 'rate_service',
+            title: session.waiter_name ? `⭐ ${T(session, 'rate_service')}` : `⭐ ${T(session, 'rate_service')}`,
+            description: session.waiter_name ? session.waiter_name : T(session, 'rate_desc'),
+        },
         { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'pay_bill_desc') },
-        { id: 'give_tips', title: session.waiter_name ? `💵 ${T(session, 'tip')} ${session.waiter_name.toUpperCase()}` : `💵 ${T(session, 'tip')}`, description: T(session, 'tip_desc') }
+        {
+            id: 'give_tips',
+            title: session.waiter_name ? `💵 ${T(session, 'tip')}` : `💵 ${T(session, 'tip')}`,
+            description: session.waiter_name ? session.waiter_name : T(session, 'tip_desc'),
+        },
     ];
 
     if (session.waiter_id) {
@@ -1252,15 +1260,16 @@ async function showHomeScreen(sock, from, session) {
     rows.push({ id: 'exit_bot', title: `❌ ${T(session, 'exit')}`, description: T(session, 'exit_desc') });
 
     await sendList(sock, from,
-        `👋 ${T(session, 'home_welcome')} *${name}* (${info})\n${T(session, 'home_choose')}\n_${T(session, 'home_type_zero')}_`,
-        'Service',
+        `👋 ${T(session, 'home_welcome')} *${name}*\n${info ? `🧑‍🍳 ${info}\n` : ''}${T(session, 'home_choose')}`,
+        T(session, 'home_main_services'),
         [
             {
-                title: `🍽️ ${T(session, 'home_main_services')}`,
-                rows: rows
-            }
+                title: T(session, 'home_main_services'),
+                rows: rows,
+            },
         ],
-        '🏠✨'
+        `🏠 ${name}`,
+        `_${T(session, 'home_type_zero')}_`
     );
 }
 
@@ -2207,42 +2216,110 @@ async function sendText(sock, from, text) {
     await sock.sendMessage(from, { text });
 }
 
-async function sendButtons(sock, from, text, buttons, headerEmoji = '✨') {
-    const session = sessions[from];
-    session.menu_options = {};
-    let menuText = `━━━━━━━━ ${headerEmoji} ━━━━━━━━\n`;
-    menuText += text + '\n\n';
-    buttons.forEach((b, i) => {
-        const key = (i + 1).toString();
-        session.menu_options[key] = b.id;
-        const numEmoji = getNumberEmoji(i + 1);
-        menuText += `${numEmoji}${b.text}\n`;
+function rememberMenuOptions(session, entries) {
+    session.menu_options = session.menu_options || {};
+
+    entries.forEach((entry, index) => {
+        const key = (index + 1).toString();
+        session.menu_options[key] = entry.id;
+        session.menu_options[entry.id] = entry.id;
+        session.menu_options[String(entry.id).toLowerCase()] = entry.id;
     });
-    menuText += '━━━━━━━━━━━━━━━━\n';
-    menuText += '✅ReplyNumberToChoose';
-    await sock.sendMessage(from, { text: menuText });
 }
 
-async function sendList(sock, from, text, buttonText, sections, headerEmoji = '✨') {
+function buildTextMenuFallback(text, entries, headerLabel = '✨') {
+    let menuText = `━━━━━━━━ ${headerLabel} ━━━━━━━━\n${text}\n\n`;
+
+    entries.forEach((entry, index) => {
+        const numEmoji = getNumberEmoji(index + 1);
+        menuText += `${numEmoji}${entry.label}\n`;
+    });
+
+    menuText += '━━━━━━━━━━━━━━━━\n✅ Reply with the number to choose';
+
+    return menuText;
+}
+
+async function sendButtons(sock, from, text, buttons, headerEmoji = '✨', footerText = null) {
     const session = sessions[from];
-    session.menu_options = {};
-    let menuText = `━━━━━━━━${headerEmoji}━━━━━━━━\n`;
-    menuText += text + '\n';
-    let counter = 1;
-    sections.forEach(section => {
-        if (section.title) menuText += `${section.title}\n`;
-        section.rows.forEach(row => {
-            const key = counter.toString();
-            session.menu_options[key] = row.id;
-            const numEmoji = getNumberEmoji(counter);
-            menuText += `${numEmoji}${row.title}`;
-            // if (row.description) menuText += `(${row.description})`;
-            menuText += '\n';
-            counter++;
+    rememberMenuOptions(session, buttons.map((button) => ({ id: button.id })));
+
+    try {
+        if (whatsapp.USE_INTERACTIVE !== false) {
+            if (buttons.length <= 3) {
+                await sock.sendMessage(from, {
+                    interactive: {
+                        type: 'button',
+                        header: headerEmoji,
+                        body: text,
+                        footer: footerText || 'Tap a button below',
+                        buttons,
+                    },
+                });
+                return;
+            }
+
+            await sock.sendMessage(from, {
+                interactive: {
+                    type: 'list',
+                    header: headerEmoji,
+                    body: text,
+                    footer: footerText || 'Tap the menu button below',
+                    buttonText: 'Choose',
+                    sections: [{ title: 'Options', rows: buttons.map((button) => ({
+                        id: button.id,
+                        title: button.text,
+                        description: button.description || '',
+                    })) }],
+                },
+            });
+            return;
+        }
+    } catch (error) {
+        console.warn('Interactive buttons failed, falling back to text menu:', error.message);
+    }
+
+    await sock.sendMessage(from, {
+        text: buildTextMenuFallback(text, buttons.map((button) => ({ id: button.id, label: button.text })), headerEmoji),
+    });
+}
+
+async function sendList(sock, from, text, buttonText, sections, headerEmoji = '✨', footerText = null) {
+    const session = sessions[from];
+    const entries = [];
+
+    sections.forEach((section) => {
+        section.rows.forEach((row) => {
+            entries.push({ id: row.id, label: row.title, description: row.description });
         });
     });
-    menuText += '━━━━━━━━━━━━━━━━\n';
-    menuText += '✅ReplyNumberToChoose';
+
+    rememberMenuOptions(session, entries);
+
+    try {
+        if (whatsapp.USE_INTERACTIVE !== false) {
+            await sock.sendMessage(from, {
+                interactive: {
+                    type: 'list',
+                    header: headerEmoji,
+                    body: text,
+                    footer: footerText || 'Tap the menu button below',
+                    buttonText,
+                    sections,
+                },
+            });
+            return;
+        }
+    } catch (error) {
+        console.warn('Interactive list failed, falling back to text menu:', error.message);
+    }
+
+    let menuText = `━━━━━━━━ ${headerEmoji} ━━━━━━━━\n${text}\n`;
+    entries.forEach((entry, index) => {
+        menuText += `${getNumberEmoji(index + 1)}${entry.label}\n`;
+    });
+    menuText += '━━━━━━━━━━━━━━━━\n✅ Reply with the number to choose';
+
     await sock.sendMessage(from, { text: menuText });
 }
 
