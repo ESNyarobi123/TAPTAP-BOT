@@ -2,6 +2,15 @@ const api = require('./api');
 const whatsapp = require('./whatsapp');
 const sessionStore = require('./session-store');
 const { T } = require('./lang');
+const {
+    TAP,
+    tapFooter,
+    buildWelcomeBody,
+    buildStartWelcome,
+    buildServiceSections,
+    buildCallWaiterSent,
+    buildLanguagePrompt,
+} = require('./brand');
 
 /**
  * Process-local cache of the active session for each WhatsApp id.
@@ -422,10 +431,7 @@ async function handleEntry(sock, from, session, text) {
 async function handleStartState(sock, from, session, text) {
     const greetings = ['hi', 'hello', 'mambo', 'habari', 'niaje', 'sasa', 'hujambo'];
     if (greetings.includes(text.toLowerCase())) {
-        await sendText(sock, from,
-            '👋 Welcome to TipTap!\n' +
-            'Please scan the waiter\'s QR code or enter a code to proceed.'
-        );
+        await sendText(sock, from, buildStartWelcome(T, session));
         session.state = 'SEARCH_RESTAURANT';
     } else {
         await handleSearchRestaurant(sock, from, session, text);
@@ -517,7 +523,7 @@ async function handleHomeState(sock, from, session, text) {
         } else {
             await showFeedbackTypeSelection(sock, from, session);
         }
-    } else if (t === 'live_bill' || t.includes('bill') || t.includes('lipa')) {
+    } else if (t === 'live_bill' || t === 'pay_bill' || t.includes('bill') || t.includes('lipa')) {
         await showLiveBillOptions(sock, from, session);
     } else if (t === 'give_tips' || t.includes('tip')) {
         if (session.waiter_id && session.waiter_name) {
@@ -833,8 +839,7 @@ async function initiateCallWaiter(sock, from, session, apiType, displayName) {
         if (session.table_id) payload.table_id = session.table_id;
         await api.callWaiter(payload);
 
-        const sentMsg = T(session, 'call_waiter_sent').replace(/{label}/g, displayName);
-        await sendText(sock, from, `✅ ${sentMsg}`);
+        await sendText(sock, from, buildCallWaiterSent(session, T, displayName));
         await showHomeScreen(sock, from, session);
     } catch (e) {
         console.error('Call waiter error:', e);
@@ -1223,62 +1228,52 @@ async function showHomeScreen(sock, from, session) {
     session.state = 'HOME';
     session.pending_order_lines = null;
     delete session.pending_order_text;
-    // Clear temporary payment/tip info
     delete session.tip_waiter_id;
     delete session.tip_waiter_name;
     delete session.feedback_waiter_id;
     delete session.feedback_waiter_name;
     session.quick_payment_desc = null;
 
-    const name = session.restaurant_name || 'Restaurant';
-    const info = session.header_info || session.waiter_name || (session.table_number ? `${T(session, 'table')} ${session.table_number}` : '-');
-
-    const rows = [
-        { id: 'view_menu', title: `🍽️ ${T(session, 'menu_view')}`, description: T(session, 'menu_view_desc') },
-        {
-            id: 'rate_service',
-            title: session.waiter_name ? `⭐ ${T(session, 'rate_service')}` : `⭐ ${T(session, 'rate_service')}`,
-            description: session.waiter_name ? session.waiter_name : T(session, 'rate_desc'),
-        },
-        { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'pay_bill_desc') },
-        {
-            id: 'give_tips',
-            title: session.waiter_name ? `💵 ${T(session, 'tip')}` : `💵 ${T(session, 'tip')}`,
-            description: session.waiter_name ? session.waiter_name : T(session, 'tip_desc'),
-        },
+    const welcomeBody = buildWelcomeBody(session, T);
+    const quickButtons = [
+        { id: 'view_menu', text: `🍽️ ${T(session, 'menu_view')}` },
     ];
 
     if (session.waiter_id) {
-        rows.push({ id: 'call_waiter', title: `🔔 ${T(session, 'call_waiter')}`, description: T(session, 'call_waiter_desc') });
+        quickButtons.push({ id: 'call_waiter', text: `🔔 ${T(session, 'call_waiter_short')}` });
+    } else {
+        quickButtons.push({ id: 'rate_service', text: `⭐ ${T(session, 'tap_rate_service')}` });
     }
 
-    if (session.support_phone) {
-        rows.push({ id: 'customer_support', title: `📞 ${T(session, 'customer_support')}`, description: T(session, 'customer_support_desc') });
-    }
+    quickButtons.push({ id: 'live_bill', text: `💳 ${T(session, 'pay_bill')}` });
 
-    rows.push({ id: 'change_language', title: `🌐 ${T(session, 'change_language')}`, description: T(session, 'change_language_desc') });
-    rows.push({ id: 'exit_bot', title: `❌ ${T(session, 'exit')}`, description: T(session, 'exit_desc') });
+    await sendButtons(sock, from, welcomeBody, quickButtons, `${TAP.primary} TAP`, tapFooter(session, T));
+    await showServicesList(sock, from, session);
+}
 
-    await sendList(sock, from,
-        `👋 ${T(session, 'home_welcome')} *${name}*\n${info ? `🧑‍🍳 ${info}\n` : ''}${T(session, 'home_choose')}`,
-        T(session, 'home_main_services'),
-        [
-            {
-                title: T(session, 'home_main_services'),
-                rows: rows,
-            },
-        ],
+async function showServicesList(sock, from, session) {
+    const name = session.restaurant_name || 'Restaurant';
+    const sub = session.waiter_name
+        ? `${session.waiter_name} · ${T(session, 'table')} ${session.table_number || '-'}`
+        : (session.table_number ? `${T(session, 'table')} ${session.table_number}` : '');
+
+    await sendList(
+        sock,
+        from,
+        `${TAP.accent} *${T(session, 'tap_services_all')}*\n${sub ? `_${sub}_\n` : ''}${T(session, 'tap_services_pick')}`,
+        T(session, 'tap_open_services'),
+        buildServiceSections(session, T),
         `🏠 ${name}`,
-        `_${T(session, 'home_type_zero')}_`
+        tapFooter(session, T),
     );
 }
 
 async function showLanguageSelect(sock, from, session) {
     session.state = 'LANGUAGE_SELECT';
-    await sendButtons(sock, from, T(session, 'select_language'), [
+    await sendButtons(sock, from, buildLanguagePrompt(session, T), [
         { id: 'lang_en', text: `🇬🇧 ${T(session, 'lang_english')}` },
-        { id: 'lang_sw', text: `🇹🇿 ${T(session, 'lang_swahili')}` }
-    ], '🌐');
+        { id: 'lang_sw', text: `🇹🇿 ${T(session, 'lang_swahili')}` },
+    ], `${TAP.primary} TAP`, tapFooter(session, T));
 }
 
 async function handleLanguageSelectState(sock, from, session, text) {
