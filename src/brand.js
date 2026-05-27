@@ -59,25 +59,25 @@ function buildServiceSections(session, T) {
         : T(session, 'rate_desc');
 
     const foodRows = [
-        { id: 'view_menu', title: T(session, 'menu_view'), description: T(session, 'menu_view_desc') },
+        { id: 'view_menu', title: `🍽️ ${T(session, 'menu_view')}`, description: T(session, 'menu_view_desc') },
     ];
 
     if (session.waiter_id) {
         foodRows.push({
             id: 'call_waiter',
-            title: T(session, 'call_waiter_short'),
+            title: `🔔 ${T(session, 'call_waiter_short')}`,
             description: waiterDesc,
         });
     }
 
     const feedbackRows = [
-        { id: 'rate_service', title: T(session, 'tap_rate_service'), description: rateDesc },
+        { id: 'rate_service', title: `⭐ ${T(session, 'tap_rate_service')}`, description: rateDesc },
     ];
 
     if (session.support_phone) {
         feedbackRows.push({
             id: 'customer_support',
-            title: T(session, 'customer_support'),
+            title: `📞 ${T(session, 'customer_support')}`,
             description: T(session, 'customer_support_desc'),
         });
     }
@@ -87,19 +87,34 @@ function buildServiceSections(session, T) {
         {
             title: T(session, 'tap_section_pay'),
             rows: [
-                { id: 'live_bill', title: T(session, 'pay_bill'), description: T(session, 'tap_pay_methods') },
-                { id: 'give_tips', title: T(session, 'tip'), description: tipDesc },
+                { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'tap_pay_methods') },
+                { id: 'give_tips', title: `💵 ${T(session, 'tip')}`, description: tipDesc },
             ],
         },
         { title: T(session, 'tap_section_feedback'), rows: feedbackRows },
         {
             title: T(session, 'tap_section_settings'),
             rows: [
-                { id: 'change_language', title: T(session, 'change_language'), description: T(session, 'change_language_desc') },
-                { id: 'exit_bot', title: T(session, 'tap_exit'), description: T(session, 'exit_desc') },
+                { id: 'change_language', title: `🌐 ${T(session, 'change_language')}`, description: T(session, 'change_language_desc') },
+                { id: 'exit_bot', title: `❌ ${T(session, 'tap_exit')}`, description: T(session, 'exit_desc') },
             ],
         },
     ];
+}
+
+function buildHomeListBody(session, T) {
+    const name = session.restaurant_name || 'Restaurant';
+    const info = session.header_info
+        || session.waiter_name
+        || (session.table_number ? `${T(session, 'table')} ${session.table_number}` : null);
+
+    let body = `👋 ${T(session, 'home_welcome')} *${name}*`;
+    if (info) {
+        body += `\n🧑‍🍳 ${info}`;
+    }
+    body += `\n\n${T(session, 'home_choose')}`;
+
+    return body;
 }
 
 function buildCallWaiterSent(session, T, displayName) {
@@ -120,6 +135,7 @@ module.exports = {
     TAP,
     tapFooter,
     buildWelcomeBody,
+    buildHomeListBody,
     buildStartWelcome,
     buildServiceSections,
     buildCallWaiterSent,

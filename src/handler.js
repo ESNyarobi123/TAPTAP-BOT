@@ -5,7 +5,7 @@ const { T } = require('./lang');
 const {
     TAP,
     tapFooter,
-    buildWelcomeBody,
+    buildHomeListBody,
     buildStartWelcome,
     buildServiceSections,
     buildCallWaiterSent,
@@ -1234,34 +1234,13 @@ async function showHomeScreen(sock, from, session) {
     delete session.feedback_waiter_name;
     session.quick_payment_desc = null;
 
-    const welcomeBody = buildWelcomeBody(session, T);
-    const quickButtons = [
-        { id: 'view_menu', text: `🍽️ ${T(session, 'menu_view')}` },
-    ];
-
-    if (session.waiter_id) {
-        quickButtons.push({ id: 'call_waiter', text: `🔔 ${T(session, 'call_waiter_short')}` });
-    } else {
-        quickButtons.push({ id: 'rate_service', text: `⭐ ${T(session, 'tap_rate_service')}` });
-    }
-
-    quickButtons.push({ id: 'live_bill', text: `💳 ${T(session, 'pay_bill')}` });
-
-    await sendButtons(sock, from, welcomeBody, quickButtons, `${TAP.primary} TAP`, tapFooter(session, T));
-    await showServicesList(sock, from, session);
-}
-
-async function showServicesList(sock, from, session) {
     const name = session.restaurant_name || 'Restaurant';
-    const sub = session.waiter_name
-        ? `${session.waiter_name} · ${T(session, 'table')} ${session.table_number || '-'}`
-        : (session.table_number ? `${T(session, 'table')} ${session.table_number}` : '');
 
     await sendList(
         sock,
         from,
-        `${TAP.accent} *${T(session, 'tap_services_all')}*\n${sub ? `_${sub}_\n` : ''}${T(session, 'tap_services_pick')}`,
-        T(session, 'tap_open_services'),
+        buildHomeListBody(session, T),
+        T(session, 'home_main_services'),
         buildServiceSections(session, T),
         `🏠 ${name}`,
         tapFooter(session, T),
