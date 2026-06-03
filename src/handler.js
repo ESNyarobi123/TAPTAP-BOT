@@ -525,7 +525,7 @@ async function handleHomeState(sock, from, session, text) {
     }
 
     // New Menu Options Mapping
-    // Menu = menu image only (no list menu from main screen)
+    // Menu = menu PDF only (no list menu from main screen)
     if (t === 'view_menu' || t.includes('menu')) {
         await showMenuImage(sock, from, session);
         return;
