@@ -399,10 +399,12 @@ async function handleEntry(sock, from, session, text) {
             await showHomeScreen(sock, from, session);
 
         } else if (result.type === 'table') {
-            // Table Assignment
+            // Table / restaurant QR — no assigned waiter; show customer support, not call waiter
             session.restaurant_id = result.data.restaurant_id;
             session.restaurant_name = result.data.restaurant_name;
             session.support_phone = result.data.support_phone || null;
+            session.waiter_id = null;
+            session.waiter_name = null;
             session.table_id = result.data.table_id;
             session.table_number = result.data.table_number || result.data.table_name; // Assuming 'number' is the display number
             session.header_info = `Table ${session.table_number}`; // Set header for Home Screen

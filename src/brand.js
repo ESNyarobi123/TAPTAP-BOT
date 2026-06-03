@@ -68,19 +68,17 @@ function buildServiceSections(session, T) {
             title: `🔔 ${T(session, 'call_waiter_short')}`,
             description: waiterDesc,
         });
-    }
-
-    const feedbackRows = [
-        { id: 'rate_service', title: `⭐ ${T(session, 'tap_rate_service')}`, description: rateDesc },
-    ];
-
-    if (session.support_phone) {
-        feedbackRows.push({
+    } else if (session.support_phone) {
+        foodRows.push({
             id: 'customer_support',
             title: `📞 ${T(session, 'customer_support')}`,
             description: T(session, 'customer_support_desc'),
         });
     }
+
+    const feedbackRows = [
+        { id: 'rate_service', title: `⭐ ${T(session, 'tap_rate_service')}`, description: rateDesc },
+    ];
 
     return [
         { title: T(session, 'tap_section_food'), rows: foodRows },
