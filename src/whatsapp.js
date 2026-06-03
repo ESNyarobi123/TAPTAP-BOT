@@ -124,12 +124,14 @@ async function downloadMediaFromUrl(link) {
     };
 }
 
-async function uploadWhatsAppMedia(buffer, mimeType) {
+async function uploadWhatsAppMedia(buffer, mimeType, filename = null) {
+    const isPdf = mimeType === 'application/pdf';
+    const defaultName = isPdf ? 'menu.pdf' : (mimeType === 'image/png' ? 'bill.png' : 'bill.jpg');
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
     form.append('file', buffer, {
-        filename: mimeType === 'image/png' ? 'bill.png' : 'bill.jpg',
+        filename: filename || defaultName,
         contentType: mimeType,
     });
 
@@ -165,6 +167,43 @@ async function sendImage(to, link, caption) {
         type: 'image',
         image: {
             id: mediaId,
+            ...(caption ? { caption } : {}),
+        },
+    });
+}
+
+async function downloadDocumentFromUrl(link) {
+    const response = await axios.get(link, {
+        responseType: 'arraybuffer',
+        timeout: 90000,
+        maxContentLength: 16 * 1024 * 1024,
+        maxRedirects: 5,
+        headers: {
+            Accept: 'application/pdf,*/*',
+            'User-Agent': 'TipTapWhatsAppBot/2.0',
+        },
+        validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    return {
+        buffer: Buffer.from(response.data),
+        mimeType: 'application/pdf',
+    };
+}
+
+async function sendDocument(to, link, fileName, caption) {
+    const { buffer, mimeType } = await downloadDocumentFromUrl(link);
+    const safeName = String(fileName || 'menu.pdf').replace(/[^\w.\-]+/g, '_');
+    const mediaId = await uploadWhatsAppMedia(buffer, mimeType, safeName);
+
+    return sendRaw({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: digitsOnly(to),
+        type: 'document',
+        document: {
+            id: mediaId,
+            filename: safeName,
             ...(caption ? { caption } : {}),
         },
     });
@@ -246,6 +285,15 @@ async function sendMessage(rawTo, payload) {
         return await sendImage(to, payload.image.url, payload.caption);
     }
 
+    if (payload?.document?.url) {
+        return await sendDocument(
+            to,
+            payload.document.url,
+            payload.document.fileName || payload.fileName,
+            payload.caption,
+        );
+    }
+
     if (payload?.interactive?.type === 'button') {
         return await sendInteractiveButtons(to, payload.interactive);
     }
@@ -281,6 +329,7 @@ module.exports = {
     sendMessage,
     sendText,
     sendImage,
+    sendDocument,
     sendInteractiveButtons,
     sendInteractiveList,
     markRead,

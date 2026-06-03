@@ -260,18 +260,21 @@ module.exports = {
     },
 
     /**
-     * 13. Get Menu Image
-     * GET /api/bot/restaurant/{restaurantId}/menu-image
+     * 13. Get Menu PDF (WhatsApp document)
+     * GET /api/bot/restaurant/{restaurantId}/menu-pdf
      */
-    getMenuImage: async (restaurantId) => {
+    getMenuPdf: async (restaurantId) => {
         try {
-            const response = await api.get(`/restaurant/${restaurantId}/menu-image`);
+            const response = await api.get(`/restaurant/${restaurantId}/menu-pdf`);
             return response.data;
         } catch (error) {
-            console.error('Get menu image error:', error.response?.data || error.message);
-            return { success: false, message: 'No menu image available' };
+            console.error('Get menu PDF error:', error.response?.data || error.message);
+            return { success: false, message: 'No menu PDF available' };
         }
     },
+
+    /** @deprecated Use getMenuPdf */
+    getMenuImage: async (restaurantId) => api.getMenuPdf(restaurantId),
 
     /**
      * 14. Initiate Quick Payment (Payment bila Order, or Tip kwa waiter)

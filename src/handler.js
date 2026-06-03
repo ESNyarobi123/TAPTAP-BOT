@@ -507,6 +507,21 @@ async function handleTableState(sock, from, session, text) {
 async function handleHomeState(sock, from, session, text) {
     const t = text.toLowerCase();
 
+    if (t === 'home_more_1') {
+        await showHomeMoreScreen(sock, from, session, 1);
+        return;
+    }
+
+    if (t === 'home_more_2') {
+        await showHomeMoreScreen(sock, from, session, 2);
+        return;
+    }
+
+    if (t === 'home_back_main') {
+        await showHomeScreen(sock, from, session);
+        return;
+    }
+
     // New Menu Options Mapping
     // Menu = menu image only (no list menu from main screen)
     if (t === 'view_menu' || t.includes('menu')) {
@@ -1247,6 +1262,50 @@ async function showHomeScreen(sock, from, session) {
     );
 }
 
+async function showHomeMoreScreen(sock, from, session, page) {
+    const name = session.restaurant_name || 'Restaurant';
+
+    if (page === 1) {
+        await sendButtons(
+            sock,
+            from,
+            `🏠 *${name}*\n${T(session, 'home_choose')}`,
+            [
+                { id: 'rate_service', text: `⭐ ${T(session, 'rate_service')}` },
+                { id: 'give_tips', text: `💵 ${T(session, 'tip')}` },
+                { id: 'home_more_2', text: '➡️ More' },
+            ],
+            '✨ More Services',
+            `_${T(session, 'home_type_zero')}_`
+        );
+        return;
+    }
+
+    const actionButtons = [];
+
+    if (session.waiter_id) {
+        actionButtons.push({ id: 'call_waiter', text: `🔔 ${T(session, 'call_waiter')}` });
+    } else if (session.support_phone) {
+        actionButtons.push({ id: 'customer_support', text: `📞 ${T(session, 'customer_support')}` });
+    }
+
+    actionButtons.push({ id: 'change_language', text: `🌐 ${T(session, 'change_language')}` });
+    actionButtons.push({ id: 'exit_bot', text: `❌ ${T(session, 'exit')}` });
+
+    if (actionButtons.length < 3) {
+        actionButtons.push({ id: 'home_back_main', text: `⬅️ ${T(session, 'back_to_menu')}` });
+    }
+
+    await sendButtons(
+        sock,
+        from,
+        `🏠 *${name}*\n${T(session, 'home_choose')}`,
+        actionButtons,
+        '⚙️ Settings',
+        `_${T(session, 'home_type_zero')}_`
+    );
+}
+
 async function showLanguageSelect(sock, from, session) {
     session.state = 'LANGUAGE_SELECT';
     await sendButtons(sock, from, buildLanguagePrompt(session, T), [
@@ -1934,17 +1993,23 @@ async function showMenuImage(sock, from, session) {
     session.state = 'MENU_IMAGE_ORDER';
     await sendText(sock, from, `🔄 ${T(session, 'downloading_menu')}`);
 
-    const result = await api.getMenuImage(session.restaurant_id);
-    if (result.success && result.data.menu_image_url) {
+    const result = await api.getMenuPdf(session.restaurant_id);
+    const pdfUrl = result.success ? result.data?.menu_pdf_url : null;
+    const fileName = result.data?.filename || 'menu.pdf';
+
+    if (pdfUrl) {
         const cmdZero = T(session, 'menu_cmd_zero');
         const cmdOrder = T(session, 'menu_cmd_order');
         const caption = `👆 ${T(session, 'here_is_menu')}\n\n*${T(session, 'menu_commands')}*\n• ${cmdZero}\n• ${cmdOrder}`;
         try {
-            await sock.sendMessage(from, { image: { url: result.data.menu_image_url }, caption: caption });
+            await sock.sendMessage(from, {
+                document: { url: pdfUrl, fileName },
+                mimetype: 'application/pdf',
+                caption,
+            });
         } catch (e) {
             await sendText(sock, from, caption);
         }
-        // No extra "Choose: 1 Home (0)" bubble — user types 0 to go back (see caption).
     } else {
         await sendText(sock, from, `❌ ${T(session, 'menu_not_available')}`);
         session.state = 'HOME';
