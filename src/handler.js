@@ -1850,10 +1850,10 @@ async function showTrackStatus(sock, from, session) {
 
 async function showFeedbackTypeSelection(sock, from, session) {
     session.state = 'FEEDBACK_TYPE';
-    await sendButtons(sock, from, '⭐ *Feedback*\nWhat would you like to rate?', [
-        { id: 'rate_restaurant', text: '🏢 Restaurant Service' },
-        { id: 'rate_waiter', text: '🙋 Waiter Service' },
-        { id: 'home', text: '🏠 Home' }
+    await sendButtons(sock, from, T(session, 'feedback_prompt'), [
+        { id: 'rate_restaurant', text: T(session, 'feedback_rate_restaurant') },
+        { id: 'rate_waiter', text: T(session, 'feedback_rate_waiter_btn') },
+        { id: 'home', text: `🏠 ${T(session, 'home')}` },
     ], '⭐✨');
 }
 
@@ -1865,13 +1865,20 @@ async function showWaiterFeedbackList(sock, from, session) {
             const rows = result.data.map(w => ({
                 id: `rate_waiter_${w.id}|${w.name}`,
                 title: `🙋 ${w.name}`,
-                description: 'Bonyeza kumfanyia rating'
+                description: T(session, 'feedback_waiter_tap_rate'),
             }));
-            rows.push({ id: 'home', title: '🏠 Home' });
+            rows.push({ id: 'home', title: `🏠 ${T(session, 'home')}` });
 
-            await sendList(sock, from, '🙋 Chagua Mhudumu wa kumfanyia Rating:', 'Wahudumu', [{ title: 'Wahudumu', rows }], '🙋✨');
+            await sendList(
+                sock,
+                from,
+                T(session, 'feedback_waiter_pick_title'),
+                T(session, 'feedback_waiter_pick_section'),
+                [{ title: T(session, 'feedback_waiter_pick_section'), rows }],
+                '🙋✨',
+            );
         } else {
-            await sendText(sock, from, 'Hakuna wahudumu kwa sasa.');
+            await sendText(sock, from, T(session, 'waiters_list_empty'));
             await showHomeScreen(sock, from, session);
         }
     } catch (e) {
@@ -1882,8 +1889,10 @@ async function showWaiterFeedbackList(sock, from, session) {
 
 async function showFeedbackA(sock, from, session) {
     session.state = 'FEEDBACK';
-    const title = session.feedback_waiter_name ? `⭐ *Rating for ${session.feedback_waiter_name}*` : '⭐ *Rating*';
-    await sendButtons(sock, from, `${title}\nGive us your feedback:`, [
+    const title = session.feedback_waiter_name
+        ? T(session, 'feedback_rating_for').replace('{name}', session.feedback_waiter_name)
+        : T(session, 'feedback_rating_generic');
+    await sendButtons(sock, from, `${title}\n${T(session, 'feedback_give_stars')}`, [
         { id: 'rate_1', text: '⭐1' },
         { id: 'rate_2', text: '⭐⭐2' },
         { id: 'rate_3', text: '⭐⭐⭐3' },
@@ -2220,13 +2229,20 @@ async function showWaiterTipList(sock, from, session) {
             const rows = result.data.map(w => ({
                 id: `tip_waiter_${w.id}|${w.name}`,
                 title: `👤 ${w.name}`,
-                description: 'Mpe Tip'
+                description: T(session, 'tip_waiter_tap_tip'),
             }));
-            rows.push({ id: 'home', title: '🏠 Home' });
+            rows.push({ id: 'home', title: `🏠 ${T(session, 'home')}` });
 
-            await sendList(sock, from, '💝 Chagua Mhudumu wa kumpa Tip:', 'Wahudumu', [{ title: 'Wahudumu', rows }], '💝✨');
+            await sendList(
+                sock,
+                from,
+                T(session, 'tip_waiter_pick_title'),
+                T(session, 'tip_waiter_pick_section'),
+                [{ title: T(session, 'tip_waiter_pick_section'), rows }],
+                '💝✨',
+            );
         } else {
-            await sendText(sock, from, 'Hakuna wahudumu kwa sasa.');
+            await sendText(sock, from, T(session, 'waiters_list_empty'));
             await showHomeScreen(sock, from, session);
         }
     } catch (e) {
