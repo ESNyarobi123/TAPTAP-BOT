@@ -467,7 +467,7 @@ async function handleEntry(sock, from, session, text) {
 async function handleStartState(sock, from, session, text) {
     const greetings = ['hi', 'hello', 'mambo', 'habari', 'niaje', 'sasa', 'hujambo'];
     if (greetings.includes(text.toLowerCase())) {
-        await sendText(sock, from, buildStartWelcome(T, session));
+        await sendStartWelcome(sock, from, session);
         session.state = 'SEARCH_RESTAURANT';
     } else {
         await handleSearchRestaurant(sock, from, session, text);
@@ -2302,6 +2302,40 @@ async function handleSelectWaiterTipState(sock, from, session, text) {
 
 async function sendText(sock, from, text) {
     await sock.sendMessage(from, { text });
+}
+
+async function sendStartWelcome(sock, from, session) {
+    let branding = null;
+
+    try {
+        branding = await api.getBranding();
+    } catch (error) {
+        console.error('Welcome branding fetch failed:', error.message);
+    }
+
+    const payload = branding?.data || {};
+    const brandName = String(payload.title || 'TipTap').trim();
+    const titleLine = /welcome/i.test(brandName)
+        ? brandName
+        : `${T(session, 'start_welcome_title')} ${brandName}!`;
+    const body = payload.body || T(session, 'start_welcome');
+    const footer = T(session, 'tap_powered_by');
+    const caption = `*${titleLine}*\n\n${body}\n\n_${footer}_`;
+    const imageUrl = payload.image_url;
+
+    if (imageUrl) {
+        try {
+            await sock.sendMessage(from, {
+                image: { url: imageUrl },
+                caption,
+            });
+            return;
+        } catch (error) {
+            console.error('Welcome image send failed, using text fallback:', error.message);
+        }
+    }
+
+    await sendText(sock, from, buildStartWelcome(T, session));
 }
 
 function rememberMenuOptions(session, entries) {

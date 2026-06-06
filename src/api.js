@@ -367,5 +367,14 @@ module.exports = {
             }
         });
         return response.data;
-    }
+    },
+
+    /**
+     * Global welcome card branding (logo + title + optional body).
+     * GET /api/bot/branding
+     */
+    getBranding: async () => {
+        const response = await api.get('/branding');
+        return response.data;
+    },
 };
