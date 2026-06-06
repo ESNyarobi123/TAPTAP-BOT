@@ -87,6 +87,12 @@ async function processMessage(from, session, initialText, contact, _message) {
         return;
     }
 
+    if (isGreeting(text) && !session.restaurant_id) {
+        await sendStartWelcome(sock, from, session);
+        session.state = 'SEARCH_RESTAURANT';
+        return;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // GLOBAL COMMANDS
     // ═══════════════════════════════════════════════════════════════
@@ -404,6 +410,12 @@ function isLeaveCommand(text) {
         || t.includes('exit');
 }
 
+function isGreeting(text) {
+    const greetings = ['hi', 'hello', 'mambo', 'habari', 'niaje', 'sasa', 'hujambo'];
+
+    return greetings.includes(String(text || '').toLowerCase().trim());
+}
+
 // ═══════════════════════════════════════════════════════════════
 // UNIFIED ENTRY HANDLER (QR & TAGS)
 // ═══════════════════════════════════════════════════════════════
@@ -465,8 +477,7 @@ async function handleEntry(sock, from, session, text) {
 // ═══════════════════════════════════════════════════════════════
 
 async function handleStartState(sock, from, session, text) {
-    const greetings = ['hi', 'hello', 'mambo', 'habari', 'niaje', 'sasa', 'hujambo'];
-    if (greetings.includes(text.toLowerCase())) {
+    if (isGreeting(text)) {
         await sendStartWelcome(sock, from, session);
         session.state = 'SEARCH_RESTAURANT';
     } else {
