@@ -71,6 +71,26 @@ function isGreeting(text) {
 }
 
 /**
+ * QR scan / waiter tag / START payload — must bypass welcome card and go to handleEntry.
+ *
+ * @param {unknown} text
+ * @returns {boolean}
+ */
+function isEntryCode(text) {
+    const value = String(text || '').trim();
+
+    if (!value) {
+        return false;
+    }
+
+    if (value.startsWith('START|') || value.startsWith('START_')) {
+        return true;
+    }
+
+    return /^[A-Z0-9]+-[A-Z0-9]+$/i.test(value);
+}
+
+/**
  * Show welcome card before a restaurant is chosen (fresh chat, after Leave, or casual openers).
  *
  * @param {{ state?: string, restaurant_id?: unknown }} session
@@ -78,7 +98,7 @@ function isGreeting(text) {
  * @returns {boolean}
  */
 function shouldOfferWelcome(session, text) {
-    if (session?.restaurant_id) {
+    if (session?.restaurant_id || isEntryCode(text)) {
         return false;
     }
 
@@ -91,6 +111,7 @@ function shouldOfferWelcome(session, text) {
 
 module.exports = {
     isGreeting,
+    isEntryCode,
     normalizeGreetingText,
     shouldOfferWelcome,
 };

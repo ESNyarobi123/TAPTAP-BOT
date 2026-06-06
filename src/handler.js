@@ -11,7 +11,7 @@ const {
     buildCallWaiterSent,
     buildLanguagePrompt,
 } = require('./brand');
-const { shouldOfferWelcome } = require('./greetings');
+const { isEntryCode, shouldOfferWelcome } = require('./greetings');
 
 /**
  * Process-local cache of the active session for each WhatsApp id.
@@ -88,6 +88,11 @@ async function processMessage(from, session, initialText, contact, _message) {
         return;
     }
 
+    // QR / waiter tag / START — always process entry before welcome card (e.g. after Leave).
+    if (isEntryCode(text)) {
+        return await handleEntry(sock, from, session, text);
+    }
+
     if (shouldOfferWelcome(session, text)) {
         await sendStartWelcome(sock, from, session);
         session.state = 'SEARCH_RESTAURANT';
@@ -113,15 +118,6 @@ async function processMessage(from, session, initialText, contact, _message) {
             await sendText(sock, from, 'Please scan a QR code or search for a restaurant first.');
             return;
         }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // ENTRY POINT: QR CODES & TAGS (Unified)
-    // ═══════════════════════════════════════════════════════════════
-    // Check for START command or Tag format (e.g., SMK-W01)
-    const isTag = /^[A-Z0-9]+-[A-Z0-9]+$/i.test(text);
-    if (text.startsWith('START|') || text.startsWith('START_') || isTag) {
-        return await handleEntry(sock, from, session, text);
     }
 
     // ═══════════════════════════════════════════════════════════════
