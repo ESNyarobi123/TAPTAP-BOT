@@ -11,7 +11,7 @@ const {
     buildCallWaiterSent,
     buildLanguagePrompt,
 } = require('./brand');
-const { isGreeting } = require('./greetings');
+const { shouldOfferWelcome } = require('./greetings');
 
 /**
  * Process-local cache of the active session for each WhatsApp id.
@@ -88,7 +88,7 @@ async function processMessage(from, session, initialText, contact, _message) {
         return;
     }
 
-    if (isGreeting(text) && !session.restaurant_id) {
+    if (shouldOfferWelcome(session, text)) {
         await sendStartWelcome(sock, from, session);
         session.state = 'SEARCH_RESTAURANT';
         return;
@@ -472,12 +472,8 @@ async function handleEntry(sock, from, session, text) {
 // ═══════════════════════════════════════════════════════════════
 
 async function handleStartState(sock, from, session, text) {
-    if (isGreeting(text)) {
-        await sendStartWelcome(sock, from, session);
-        session.state = 'SEARCH_RESTAURANT';
-    } else {
-        await handleSearchRestaurant(sock, from, session, text);
-    }
+    await sendStartWelcome(sock, from, session);
+    session.state = 'SEARCH_RESTAURANT';
 }
 
 async function handleSearchState(sock, from, session, text) {
@@ -2011,9 +2007,17 @@ async function handleSearchRestaurant(sock, from, session, query) {
             await sendText(sock, from, text);
             session.state = 'SEARCH_RESTAURANT';
         } else {
-            await sendText(sock, from, 'Sorry, not found. Try again.');
+            await sendStartWelcome(sock, from, session);
+            session.state = 'SEARCH_RESTAURANT';
         }
-    } catch (e) { await sendText(sock, from, '❌Error searching.'); }
+    } catch (e) {
+        if (!session.restaurant_id) {
+            await sendStartWelcome(sock, from, session);
+            session.state = 'SEARCH_RESTAURANT';
+        } else {
+            await sendText(sock, from, '❌Error searching.');
+        }
+    }
 }
 
 async function showMenuSelection(sock, from, session) {

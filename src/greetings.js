@@ -70,7 +70,27 @@ function isGreeting(text) {
     return shortPhrase;
 }
 
+/**
+ * Show welcome card before a restaurant is chosen (fresh chat, after Leave, or casual openers).
+ *
+ * @param {{ state?: string, restaurant_id?: unknown }} session
+ * @param {unknown} text
+ * @returns {boolean}
+ */
+function shouldOfferWelcome(session, text) {
+    if (session?.restaurant_id) {
+        return false;
+    }
+
+    if (session?.state === 'START') {
+        return true;
+    }
+
+    return isGreeting(text);
+}
+
 module.exports = {
     isGreeting,
     normalizeGreetingText,
+    shouldOfferWelcome,
 };
