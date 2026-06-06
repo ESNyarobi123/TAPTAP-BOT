@@ -11,6 +11,7 @@ const {
     buildCallWaiterSent,
     buildLanguagePrompt,
 } = require('./brand');
+const { isGreeting } = require('./greetings');
 
 /**
  * Process-local cache of the active session for each WhatsApp id.
@@ -408,12 +409,6 @@ function isLeaveCommand(text) {
         || t === 'leave'
         || t.includes('leave')
         || t.includes('exit');
-}
-
-function isGreeting(text) {
-    const greetings = ['hi', 'hello', 'mambo', 'habari', 'niaje', 'sasa', 'hujambo'];
-
-    return greetings.includes(String(text || '').toLowerCase().trim());
 }
 
 // ═══════════════════════════════════════════════════════════════
