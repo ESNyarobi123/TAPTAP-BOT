@@ -81,6 +81,12 @@ async function processMessage(from, session, initialText, contact, _message) {
         return;
     }
 
+    if (isLeaveCommand(text)) {
+        await clearCustomerSession(from, session);
+        await sendText(sock, from, T(session, 'goodbye'));
+        return;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // GLOBAL COMMANDS
     // ═══════════════════════════════════════════════════════════════
@@ -366,8 +372,36 @@ function createNewSession() {
         feedback_waiter_id: null,
         feedback_waiter_name: null,
         bill_image_sent_for_order: null,
-        pending_order_lines: null
+        pending_order_lines: null,
+        menu_options: null,
+        header_info: null,
+        search_results: null,
     };
+}
+
+/** Reset the live session object (and DB) after Leave / Exit. */
+async function clearCustomerSession(waId, session) {
+    const preserved = {
+        customer_name: session.customer_name ?? null,
+        lang: session.lang || 'en',
+    };
+
+    Object.keys(session).forEach((key) => {
+        delete session[key];
+    });
+    Object.assign(session, createNewSession(), preserved);
+
+    sessions[waId] = session;
+    await sessionStore.clear(waId);
+}
+
+function isLeaveCommand(text) {
+    const t = String(text || '').toLowerCase().trim();
+
+    return t === 'exit_bot'
+        || t === 'leave'
+        || t.includes('leave')
+        || t.includes('exit');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -591,9 +625,6 @@ async function handleHomeState(sock, from, session, text) {
         }
     } else if (t === 'change_language' || t.includes('language') || t.includes('lugha')) {
         await showLanguageSelect(sock, from, session);
-    } else if (t === 'exit_bot' || t.includes('exit')) {
-        sessions[from] = createNewSession();
-        await sendText(sock, from, T(session, 'goodbye'));
     } else {
         await showHomeScreen(sock, from, session);
     }
