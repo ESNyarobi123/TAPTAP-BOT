@@ -415,8 +415,6 @@ function isLeaveCommand(text) {
 // UNIFIED ENTRY HANDLER (QR & TAGS)
 // ═══════════════════════════════════════════════════════════════
 async function handleEntry(sock, from, session, text) {
-    await sendText(sock, from, `🔄 ${T(session, 'verifying')}`);
-
     try {
         const result = await api.parseEntry(text);
         console.log('🔍 Parse Entry Result:', JSON.stringify(result, null, 2));
@@ -2043,7 +2041,6 @@ async function handleMenuSelectionState(sock, from, session, text) {
 
 async function showMenuImage(sock, from, session) {
     session.state = 'MENU_IMAGE_ORDER';
-    await sendText(sock, from, `🔄 ${T(session, 'downloading_menu')}`);
 
     const result = await api.getMenuPdf(session.restaurant_id);
     const pdfUrl = result.success ? result.data?.menu_pdf_url : null;
