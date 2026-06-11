@@ -92,11 +92,11 @@ function buildServiceSections(session, T) {
             title: `🔔 ${T(session, 'call_waiter_short')}`,
             description: waiterDesc,
         });
-    } else if (session.support_phone) {
+    } else if (session.table_number || session.table_id) {
         foodRows.push({
-            id: 'customer_support',
-            title: `📞 ${T(session, 'customer_support')}`,
-            description: T(session, 'customer_support_desc'),
+            id: 'call_waiter',
+            title: `🔔 ${T(session, 'call_waiter_short')}`,
+            description: T(session, 'call_waiter_order_desc'),
         });
     }
 

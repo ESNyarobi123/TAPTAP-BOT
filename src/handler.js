@@ -436,7 +436,7 @@ async function handleEntry(sock, from, session, text) {
             await showHomeScreen(sock, from, session);
 
         } else if (result.type === 'table') {
-            // Table / restaurant QR — no assigned waiter; show customer support, not call waiter
+            // Table QR — call waiter resolves from active order on this table
             session.restaurant_id = result.data.restaurant_id;
             session.restaurant_name = result.data.restaurant_name;
             session.support_phone = result.data.support_phone || null;
@@ -583,7 +583,7 @@ async function handleHomeState(sock, from, session, text) {
         }
     } else if (t === 'call_waiter' || t.includes('call')) {
         if (session.waiter_id) {
-            // Check waiter online status FIRST (before asking table) when customer has specific waiter (e.g. from QR)
+            // Waiter QR — call assigned waiter directly
             let statusRes;
             try {
                 statusRes = await api.getWaiterStatus(session.waiter_id);
@@ -604,6 +604,8 @@ async function handleHomeState(sock, from, session, text) {
                 session.pending_call_label = 'Call Waiter';
                 await showCallWaiterAskTable(sock, from, session);
             }
+        } else if (session.table_number || session.table_id) {
+            await initiateTableOrderCallWaiter(sock, from, session);
         } else {
             await showWaitersList(sock, from, session);
         }
@@ -847,6 +849,42 @@ async function handleCallWaiterAskTableState(sock, from, session, text) {
             await sendText(sock, from, `❌ ${T(session, 'call_waiter_table_invalid')}`);
             await showCallWaiterAskTable(sock, from, session);
         }
+    }
+}
+
+async function initiateTableOrderCallWaiter(sock, from, session) {
+    try {
+        const orderRes = await api.getActiveOrder(
+            session.restaurant_id,
+            session.table_number || null,
+            session.table_id || null,
+        );
+
+        if (!orderRes.success || !orderRes.order) {
+            await sendText(sock, from, `⚠️ ${T(session, 'call_waiter_no_order')}`);
+            await showHomeScreen(sock, from, session);
+            return;
+        }
+
+        if (!orderRes.order.waiter_id) {
+            await sendText(sock, from, `⚠️ ${T(session, 'call_waiter_no_order_waiter')}`);
+            await showHomeScreen(sock, from, session);
+            return;
+        }
+
+        const savedWaiterId = session.waiter_id;
+        const savedWaiterName = session.waiter_name;
+        session.waiter_id = orderRes.order.waiter_id;
+        session.waiter_name = orderRes.order.waiter_name;
+
+        await initiateCallWaiter(sock, from, session, 'call_waiter', 'Call Waiter');
+
+        session.waiter_id = savedWaiterId;
+        session.waiter_name = savedWaiterName;
+    } catch (e) {
+        console.error('Table order call waiter error:', e);
+        await sendText(sock, from, `❌ ${T(session, 'call_waiter_failed')}`);
+        await showHomeScreen(sock, from, session);
     }
 }
 
@@ -1362,6 +1400,8 @@ async function showHomeMoreScreen(sock, from, session, page) {
     const actionButtons = [];
 
     if (session.waiter_id) {
+        actionButtons.push({ id: 'call_waiter', text: `🔔 ${T(session, 'call_waiter')}` });
+    } else if (session.table_number || session.table_id) {
         actionButtons.push({ id: 'call_waiter', text: `🔔 ${T(session, 'call_waiter')}` });
     } else if (session.support_phone) {
         actionButtons.push({ id: 'customer_support', text: `📞 ${T(session, 'customer_support')}` });

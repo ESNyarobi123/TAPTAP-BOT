@@ -254,13 +254,25 @@ module.exports = {
 
     /**
      * 11. Get Active Order (Bill)
-     * GET /api/bot/active-order?restaurant_id=2&table_number=1
+     * GET /api/bot/active-order?restaurant_id=2&table_number=1&table_id=
      */
-    getActiveOrder: async (restaurantId, tableNumber) => {
-        const response = await api.get('/active-order', {
-            params: { restaurant_id: restaurantId, table_number: tableNumber }
-        });
-        return response.data;
+    getActiveOrder: async (restaurantId, tableNumber = null, tableId = null) => {
+        const params = { restaurant_id: restaurantId };
+        if (tableNumber) {
+            params.table_number = tableNumber;
+        }
+        if (tableId) {
+            params.table_id = tableId;
+        }
+        try {
+            const response = await api.get('/active-order', { params });
+            return response.data;
+        } catch (error) {
+            if (error.response && error.response.data) {
+                return error.response.data;
+            }
+            throw error;
+        }
     },
 
     /**
