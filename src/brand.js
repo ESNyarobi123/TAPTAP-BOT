@@ -80,9 +80,7 @@ function buildServiceSections(session, T) {
     const tipDesc = waiterShort
         ? T(session, 'tap_tip_waiter').replace('{name}', waiterShort)
         : T(session, 'tip_desc');
-    const rateDesc = waiterShort
-        ? T(session, 'tap_rate_waiter').replace('{name}', waiterShort)
-        : T(session, 'rate_desc');
+    const rateDesc = T(session, 'tap_rate_service_desc');
 
     const foodRows = [
         { id: 'view_menu', title: `🍽️ ${T(session, 'menu_view')}`, description: T(session, 'menu_view_desc') },
