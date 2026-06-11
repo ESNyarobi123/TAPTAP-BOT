@@ -186,11 +186,24 @@ module.exports = {
     /**
      * 8. Submit Feedback
      * POST /api/bot/feedback
-     * Body: { restaurant_id, customer_phone, rating, comment }
+     * Body: { restaurant_id, type, customer_phone, rating, comment, waiter_id?, order_id? }
      * Response: { success, message }
      */
     submitFeedback: async (feedbackData) => {
         const response = await api.post('/feedback', feedbackData);
+        return response.data;
+    },
+
+    /**
+     * Latest customer order (for food rating).
+     * GET /api/bot/latest-order?restaurant_id=&customer_phone=&order_id=
+     */
+    getLatestCustomerOrder: async ({ restaurant_id, customer_phone, order_id = null }) => {
+        const params = { restaurant_id, customer_phone };
+        if (order_id) {
+            params.order_id = order_id;
+        }
+        const response = await api.get('/latest-order', { params });
         return response.data;
     },
 

@@ -564,13 +564,7 @@ async function handleHomeState(sock, from, session, text) {
     if (t === 'track_order' || t === 'status' || t.includes('track')) {
         await showTrackStatus(sock, from, session);
     } else if (t === 'rate_service' || t.includes('rate')) {
-        if (session.waiter_id && session.waiter_name) {
-            session.feedback_waiter_id = session.waiter_id;
-            session.feedback_waiter_name = session.waiter_name;
-            await showFeedbackA(sock, from, session);
-        } else {
-            await showFeedbackTypeSelection(sock, from, session);
-        }
+        await showFeedbackTypeSelection(sock, from, session);
     } else if (t === 'go_payment') {
         await openOrderPayment(sock, from, session);
     } else if (t === 'pay_cash') {
@@ -1192,13 +1186,11 @@ async function handleTrackStatusState(sock, from, session, text) {
 
 async function handleFeedbackState(sock, from, session, text) {
     if (session.state === 'FEEDBACK_TYPE') {
-        if (text === 'rate_restaurant') {
-            session.feedback_waiter_id = null;
-            session.feedback_waiter_name = null;
-            await showFeedbackA(sock, from, session);
+        if (text === 'rate_food') {
+            await startFoodRating(sock, from, session);
         } else if (text === 'rate_waiter') {
+            session.feedback_type = 'waiter';
             if (session.waiter_id && session.waiter_name) {
-                // Auto-select assigned waiter
                 session.feedback_waiter_id = session.waiter_id;
                 session.feedback_waiter_name = session.waiter_name;
                 await showFeedbackA(sock, from, session);
@@ -1211,6 +1203,7 @@ async function handleFeedbackState(sock, from, session, text) {
     } else if (session.state === 'FEEDBACK_WAITER_LIST') {
         if (text.startsWith('rate_waiter_')) {
             const parts = text.replace('rate_waiter_', '').split('|');
+            session.feedback_type = 'waiter';
             session.feedback_waiter_id = parts[0];
             session.feedback_waiter_name = parts[1];
             await showFeedbackA(sock, from, session);
@@ -1228,15 +1221,28 @@ async function handleFeedbackState(sock, from, session, text) {
 
 async function handleFeedbackCommentState(sock, from, session, text) {
     const comment = (text.toLowerCase() === 'end' || text.toLowerCase() === 'skip') ? '' : text;
+    const customerPhone = from.split('@')[0];
+    const feedbackType = session.feedback_type || 'waiter';
+
+    const payload = {
+        restaurant_id: session.restaurant_id,
+        customer_phone: customerPhone,
+        type: feedbackType,
+        rating: session.rating,
+        comment: comment,
+    };
+
+    if (feedbackType === 'food') {
+        payload.order_id = session.feedback_order_id;
+    } else {
+        payload.waiter_id = session.feedback_waiter_id;
+        if (session.active_order_id) {
+            payload.order_id = session.active_order_id;
+        }
+    }
 
     try {
-        await api.submitFeedback({
-            restaurant_id: session.restaurant_id,
-            customer_phone: from.split('@')[0],
-            rating: session.rating,
-            comment: comment,
-            waiter_id: session.feedback_waiter_id
-        });
+        await api.submitFeedback(payload);
     } catch (e) {
         console.error('Feedback error:', e);
     }
@@ -1313,6 +1319,8 @@ async function showHomeScreen(sock, from, session) {
     delete session.tip_waiter_name;
     delete session.feedback_waiter_id;
     delete session.feedback_waiter_name;
+    delete session.feedback_type;
+    delete session.feedback_order_id;
     session.quick_payment_desc = null;
 
     const name = session.restaurant_name || 'Restaurant';
@@ -1922,10 +1930,38 @@ async function showTrackStatus(sock, from, session) {
 async function showFeedbackTypeSelection(sock, from, session) {
     session.state = 'FEEDBACK_TYPE';
     await sendButtons(sock, from, T(session, 'feedback_prompt'), [
-        { id: 'rate_restaurant', text: T(session, 'feedback_rate_restaurant') },
         { id: 'rate_waiter', text: T(session, 'feedback_rate_waiter_btn') },
+        { id: 'rate_food', text: T(session, 'feedback_rate_food_btn') },
         { id: 'home', text: `🏠 ${T(session, 'home')}` },
     ], '⭐✨');
+}
+
+async function startFoodRating(sock, from, session) {
+    const customerPhone = from.split('@')[0];
+
+    try {
+        const result = await api.getLatestCustomerOrder({
+            restaurant_id: session.restaurant_id,
+            customer_phone: customerPhone,
+            order_id: session.active_order_id || null,
+        });
+
+        if (!result.success || !result.order?.id) {
+            await sendText(sock, from, `⚠️ ${T(session, 'feedback_no_order')}`);
+            await showHomeScreen(sock, from, session);
+            return;
+        }
+
+        session.feedback_type = 'food';
+        session.feedback_order_id = result.order.id;
+        session.feedback_waiter_id = null;
+        session.feedback_waiter_name = null;
+        await showFeedbackA(sock, from, session);
+    } catch (e) {
+        console.error('Food rating order lookup error:', e);
+        await sendText(sock, from, `⚠️ ${T(session, 'feedback_no_order')}`);
+        await showHomeScreen(sock, from, session);
+    }
 }
 
 async function showWaiterFeedbackList(sock, from, session) {
@@ -1960,9 +1996,14 @@ async function showWaiterFeedbackList(sock, from, session) {
 
 async function showFeedbackA(sock, from, session) {
     session.state = 'FEEDBACK';
-    const title = session.feedback_waiter_name
-        ? T(session, 'feedback_rating_for').replace('{name}', session.feedback_waiter_name)
-        : T(session, 'feedback_rating_generic');
+    let title;
+    if (session.feedback_type === 'food') {
+        title = T(session, 'feedback_food_rating');
+    } else if (session.feedback_waiter_name) {
+        title = T(session, 'feedback_rating_for').replace('{name}', session.feedback_waiter_name);
+    } else {
+        title = T(session, 'feedback_rating_generic');
+    }
     await sendButtons(sock, from, `${title}\n${T(session, 'feedback_give_stars')}`, [
         { id: 'rate_1', text: '⭐1' },
         { id: 'rate_2', text: '⭐⭐2' },
