@@ -10,6 +10,7 @@ const {
     buildServiceSections,
     buildCallWaiterSent,
     buildLanguagePrompt,
+    waiterFirstName,
 } = require('./brand');
 const { isEntryCode, shouldOfferWelcome } = require('./greetings');
 const { integratedPaymentsEnabled } = require('./features');
@@ -1969,11 +1970,15 @@ async function showWaiterFeedbackList(sock, from, session) {
     try {
         const result = await api.getWaiters(session.restaurant_id);
         if (result.success && result.data.length > 0) {
-            const rows = result.data.map(w => ({
-                id: `rate_waiter_${w.id}|${w.name}`,
-                title: `🙋 ${w.name}`,
-                description: T(session, 'feedback_waiter_tap_rate'),
-            }));
+            const rows = result.data.map(w => {
+                const shortName = waiterFirstName(w.name) || w.name;
+
+                return {
+                    id: `rate_waiter_${w.id}|${w.name}`,
+                    title: `🙋 ${shortName}`,
+                    description: T(session, 'feedback_waiter_tap_rate'),
+                };
+            });
             rows.push({ id: 'home', title: `🏠 ${T(session, 'home')}` });
 
             await sendList(
@@ -2000,7 +2005,8 @@ async function showFeedbackA(sock, from, session) {
     if (session.feedback_type === 'food') {
         title = T(session, 'feedback_food_rating');
     } else if (session.feedback_waiter_name) {
-        title = T(session, 'feedback_rating_for').replace('{name}', session.feedback_waiter_name);
+        const waiterLabel = waiterFirstName(session.feedback_waiter_name) || session.feedback_waiter_name;
+        title = T(session, 'feedback_rating_for').replace('{name}', waiterLabel);
     } else {
         title = T(session, 'feedback_rating_generic');
     }
