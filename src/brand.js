@@ -3,6 +3,8 @@
  * Colors from samaki_samaki_tap_branded_ui.html (#2121CC primary, #6C63FF accent).
  */
 
+const { integratedPaymentsEnabled } = require('./features');
+
 const TAP = {
     divider: '━━━━━━━━━━━━━━━━━━━━',
     primary: '🔵',
@@ -104,15 +106,21 @@ function buildServiceSections(session, T) {
         { id: 'rate_service', title: `⭐ ${T(session, 'tap_rate_service')}`, description: rateDesc },
     ];
 
-    return [
+    const sections = [
         { title: T(session, 'tap_section_food'), rows: foodRows },
-        {
+    ];
+
+    if (integratedPaymentsEnabled) {
+        sections.push({
             title: T(session, 'tap_section_pay'),
             rows: [
                 { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'tap_pay_methods') },
                 { id: 'give_tips', title: `💵 ${T(session, 'tip')}`, description: tipDesc },
             ],
-        },
+        });
+    }
+
+    sections.push(
         { title: T(session, 'tap_section_feedback'), rows: feedbackRows },
         {
             title: T(session, 'tap_section_settings'),
@@ -121,7 +129,9 @@ function buildServiceSections(session, T) {
                 { id: 'exit_bot', title: `❌ ${T(session, 'tap_exit')}`, description: T(session, 'exit_desc') },
             ],
         },
-    ];
+    );
+
+    return sections;
 }
 
 function buildHomeListBody(session, T) {

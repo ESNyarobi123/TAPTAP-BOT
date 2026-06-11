@@ -12,6 +12,7 @@ const {
     buildLanguagePrompt,
 } = require('./brand');
 const { isEntryCode, shouldOfferWelcome } = require('./greetings');
+const { integratedPaymentsEnabled } = require('./features');
 
 /**
  * Process-local cache of the active session for each WhatsApp id.
@@ -570,11 +571,14 @@ async function handleHomeState(sock, from, session, text) {
         } else {
             await showFeedbackTypeSelection(sock, from, session);
         }
-    } else if (t === 'live_bill' || t === 'pay_bill' || t.includes('bill') || t.includes('lipa')) {
+    } else if (t === 'go_payment') {
+        await openOrderPayment(sock, from, session);
+    } else if (t === 'pay_cash') {
+        await showCashPayment(sock, from, session);
+    } else if (integratedPaymentsEnabled && (t === 'live_bill' || t === 'pay_bill' || t.includes('bill') || t.includes('lipa'))) {
         await showLiveBillOptions(sock, from, session);
-    } else if (t === 'give_tips' || t.includes('tip')) {
+    } else if (integratedPaymentsEnabled && (t === 'give_tips' || t.includes('tip'))) {
         if (session.waiter_id && session.waiter_name) {
-            // Auto-select assigned waiter
             session.tip_waiter_id = session.waiter_id;
             session.tip_waiter_name = session.waiter_name;
             session.quick_payment_desc = `Tip for ${session.tip_waiter_name}`;
@@ -782,11 +786,7 @@ async function handlePickTableForOrderState(sock, from, session, text) {
                 }
                 msg += `\n💰 *${T(session, 'total')} ${result.order.total?.toLocaleString()}/=*`;
                 msg += `\n\n${T(session, 'waiter_confirm')}`;
-                await sendButtons(sock, from, msg, [
-                    { id: 'go_payment', text: `💳 ${T(session, 'pay_now')}` },
-                    { id: 'track_order', text: `📍 ${T(session, 'track_status')}` },
-                    { id: 'home', text: `🏠 ${T(session, 'home')}` }
-                ], '🧾✨');
+                await sendButtons(sock, from, msg, buildPostOrderButtons(session), '🧾✨');
                 session.state = 'HOME';
             } else {
                 await sendText(sock, from, result.message || T(session, 'error_order'));
@@ -1071,6 +1071,10 @@ async function handlePaymentSummaryState(sock, from, session, text) {
             await showCashPayment(sock, from, session);
             break;
         case 'pay_mobile':
+            if (!integratedPaymentsEnabled) {
+                await showCashPayment(sock, from, session);
+                break;
+            }
             session.state = 'USSD_NUMBER';
             await sendText(sock, from, `📱 ${T(session, 'enter_phone_billed')}`);
             break;
@@ -1172,7 +1176,10 @@ async function handleTrackStatusState(sock, from, session, text) {
             await showTrackStatus(sock, from, session);
             break;
         case 'go_payment':
-            await showPaymentSummary(sock, from, session);
+            await openOrderPayment(sock, from, session);
+            break;
+        case 'pay_cash':
+            await showCashPayment(sock, from, session);
             break;
         case 'rate_service':
             await showFeedbackTypeSelection(sock, from, session);
@@ -1268,6 +1275,36 @@ async function handleTipState(sock, from, session, text) {
 // SCREEN BUILDERS
 // ═══════════════════════════════════════════════════════════════
 
+function buildPostOrderButtons(session) {
+    const buttons = [];
+
+    if (integratedPaymentsEnabled) {
+        buttons.push({ id: 'go_payment', text: `💳 ${T(session, 'pay_now')}` });
+    } else {
+        buttons.push({ id: 'pay_cash', text: `💵 ${T(session, 'pay_cash_btn')}` });
+    }
+
+    buttons.push(
+        { id: 'track_order', text: `📍 ${T(session, 'track_status')}` },
+        { id: 'home', text: `🏠 ${T(session, 'home')}` },
+    );
+
+    return buttons;
+}
+
+async function openOrderPayment(sock, from, session) {
+    if (!session.active_order_id) {
+        await sendText(sock, from, 'No active order to pay.');
+        return await showHomeScreen(sock, from, session);
+    }
+
+    if (integratedPaymentsEnabled) {
+        await showPaymentSummary(sock, from, session);
+    } else {
+        await showCashPayment(sock, from, session);
+    }
+}
+
 async function showHomeScreen(sock, from, session) {
     session.state = 'HOME';
     session.pending_order_lines = null;
@@ -1295,15 +1332,18 @@ async function showHomeMoreScreen(sock, from, session, page) {
     const name = session.restaurant_name || 'Restaurant';
 
     if (page === 1) {
+        const moreButtons = [
+            { id: 'rate_service', text: `⭐ ${T(session, 'rate_service')}` },
+        ];
+        if (integratedPaymentsEnabled) {
+            moreButtons.push({ id: 'give_tips', text: `💵 ${T(session, 'tip')}` });
+        }
+        moreButtons.push({ id: 'home_more_2', text: '➡️ More' });
         await sendButtons(
             sock,
             from,
             `🏠 *${name}*\n${T(session, 'home_choose')}`,
-            [
-                { id: 'rate_service', text: `⭐ ${T(session, 'rate_service')}` },
-                { id: 'give_tips', text: `💵 ${T(session, 'tip')}` },
-                { id: 'home_more_2', text: '➡️ More' },
-            ],
+            moreButtons,
             '✨ More Services',
             `_${T(session, 'home_type_zero')}_`
         );
@@ -1654,11 +1694,7 @@ async function createOrder(sock, from, session) {
                 `🧾#${result.order_id}\n` +
                 `💰${result.total.toLocaleString()}/=\n` +
                 `Waiter is coming...`,
-                [
-                    { id: 'go_payment', text: '💳PayNow' },
-                    { id: 'track_order', text: '📍Track' },
-                    { id: 'home', text: '🏠Home' }
-                ]
+                buildPostOrderButtons(session),
             );
             session.state = 'HOME';
         }
@@ -1675,6 +1711,10 @@ async function showPaymentSummary(sock, from, session) {
         return await showHomeScreen(sock, from, session);
     }
 
+    if (!integratedPaymentsEnabled) {
+        return await showCashPayment(sock, from, session);
+    }
+
     let text = '🧾*Your Bill*\n';
     text += `📋#${session.active_order_id}\n`;
     text += `💰*Total:${session.order_total?.toLocaleString() || 0}/=*\n`;
@@ -1684,8 +1724,8 @@ async function showPaymentSummary(sock, from, session) {
             title: '💳PAYMENT',
             rows: [
                 { id: 'pay_mobile', title: '📲MobileMoney' },
-                { id: 'pay_cash', title: '💵Cash' }
-            ]
+                { id: 'pay_cash', title: '💵Cash' },
+            ],
         },
         {
             title: '🏠HOME',
@@ -1859,7 +1899,11 @@ async function showTrackStatus(sock, from, session) {
         ];
 
         if (order.payment_status !== 'paid') {
-            buttons.push({ id: 'go_payment', text: '💳 Pay Now' });
+            if (integratedPaymentsEnabled) {
+                buttons.push({ id: 'go_payment', text: '💳 Pay Now' });
+            } else {
+                buttons.push({ id: 'pay_cash', text: `💵 ${T(session, 'pay_cash_btn')}` });
+            }
         }
 
         if (order.status === 'served' || order.status === 'ready' || order.payment_status === 'paid') {
@@ -2110,11 +2154,7 @@ async function handleMenuImageOrderState(sock, from, session, text) {
                 msg += `\n💰 *${T(session, 'total')} ${result.order.total?.toLocaleString()}/=*`;
                 msg += `\n\n${T(session, 'waiter_confirm')}`;
 
-                await sendButtons(sock, from, msg, [
-                    { id: 'go_payment', text: `💳 ${T(session, 'pay_now')}` },
-                    { id: 'track_order', text: `📍 ${T(session, 'track_status')}` },
-                    { id: 'home', text: `🏠 ${T(session, 'home')}` }
-                ], '🧾✨');
+                await sendButtons(sock, from, msg, buildPostOrderButtons(session), '🧾✨');
             } else {
                 // Handle success but no order object (e.g. just a message)
                 await sendText(sock, from, result.message || '✅ Order received! Waiter is coming.');
@@ -2135,6 +2175,10 @@ async function handleMenuImageOrderState(sock, from, session, text) {
 }
 
 async function showLiveBillOptions(sock, from, session) {
+    if (!integratedPaymentsEnabled) {
+        return await showHomeScreen(sock, from, session);
+    }
+
     // Clear tip info when paying bill
     delete session.tip_waiter_id;
     delete session.tip_waiter_name;
@@ -2182,6 +2226,10 @@ async function handleQuickPaymentPhoneState(sock, from, session, text) {
 }
 
 async function showQuickPaymentAmount(sock, from, session) {
+    if (!integratedPaymentsEnabled) {
+        return await showHomeScreen(sock, from, session);
+    }
+
     session.state = 'QUICK_PAYMENT_AMOUNT';
     const msg = session.tip_waiter_id && session.tip_waiter_name
         ? `💰 ${T(session, 'tip_amount')} ${session.tip_waiter_name.toUpperCase()} (Tsh):`
@@ -2256,6 +2304,10 @@ async function handleQuickPaymentPendingState(sock, from, session, text) {
 }
 
 async function showWaiterTipList(sock, from, session) {
+    if (!integratedPaymentsEnabled) {
+        return await showHomeScreen(sock, from, session);
+    }
+
     session.state = 'SELECT_WAITER_TIP';
     try {
         const result = await api.getWaiters(session.restaurant_id);
