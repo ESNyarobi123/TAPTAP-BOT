@@ -1287,7 +1287,7 @@ async function showHomeScreen(sock, from, session) {
         T(session, 'home_main_services'),
         buildServiceSections(session, T),
         `üè† ${name}`,
-        tapFooter(session, T),
+        '',
     );
 }
 
@@ -2423,16 +2423,17 @@ async function sendList(sock, from, text, buttonText, sections, headerEmoji = '‚
 
     try {
         if (whatsapp.USE_INTERACTIVE !== false) {
-            await sock.sendMessage(from, {
-                interactive: {
-                    type: 'list',
-                    header: headerEmoji,
-                    body: text,
-                    footer: footerText || 'Tap the menu button below',
-                    buttonText,
-                    sections,
-                },
-            });
+            const interactive = {
+                type: 'list',
+                header: headerEmoji,
+                body: text,
+                buttonText,
+                sections,
+            };
+            if (footerText) {
+                interactive.footer = footerText;
+            }
+            await sock.sendMessage(from, { interactive });
             return;
         }
     } catch (error) {
