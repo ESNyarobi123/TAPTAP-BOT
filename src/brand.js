@@ -125,15 +125,15 @@ function buildHomeListBody(session, T) {
     const name = session.restaurant_name || 'Restaurant';
     const waiterLine = formatWaiterHomeLine(session, T);
 
-    const lines = [`👋 ${T(session, 'home_welcome')} ${name}`];
+    let body = `👋 ${T(session, 'home_welcome')} ${name}`;
     if (waiterLine) {
-        lines.push(`🧑‍🍳 ${waiterLine}`);
+        body += `\n🧑‍🍳 ${waiterLine}`;
     } else if (session.table_number) {
-        lines.push(`🪑 ${T(session, 'table')} ${session.table_number}`);
+        body += `\n🪑 ${T(session, 'table')} ${session.table_number}`;
     }
-    lines.push(T(session, 'home_choose'));
+    body += `\n\n${T(session, 'home_choose')}`;
 
-    return lines.join('\n\n');
+    return body;
 }
 
 function buildCallWaiterSent(session, T, displayName) {
