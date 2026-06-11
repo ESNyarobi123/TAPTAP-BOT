@@ -133,7 +133,7 @@ function buildHomeListBody(session, T) {
     }
     lines.push(T(session, 'home_choose'));
 
-    return lines.join('\n');
+    return lines.join('\n\n');
 }
 
 function buildCallWaiterSent(session, T, displayName) {

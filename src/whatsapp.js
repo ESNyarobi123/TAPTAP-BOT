@@ -48,6 +48,21 @@ function truncateText(value, max) {
     return `${cleaned.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
+/** List/button body — keep intentional line breaks (truncateText flattens \\n). */
+function truncateBodyText(value, max) {
+    const cleaned = String(value || '')
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/ *\n */g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    if (cleaned.length <= max) {
+        return cleaned;
+    }
+
+    return `${cleaned.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
 function normalizeSections(sections) {
     const normalized = [];
     let totalRows = 0;
@@ -224,7 +239,7 @@ async function sendInteractiveButtons(to, { header, body, footer, buttons }) {
 
     const interactive = {
         type: 'button',
-        body: { text: truncateText(body, 1024) },
+        body: { text: truncateBodyText(body, 1024) },
         action: { buttons: actionButtons },
     };
 
@@ -248,7 +263,7 @@ async function sendInteractiveButtons(to, { header, body, footer, buttons }) {
 async function sendInteractiveList(to, { header, body, footer, buttonText, sections }) {
     const interactive = {
         type: 'list',
-        body: { text: truncateText(body, 1024) },
+        body: { text: truncateBodyText(body, 1024) },
         action: {
             button: truncateText(buttonText || 'Choose', 20),
             sections: normalizeSections(sections),
@@ -335,5 +350,6 @@ module.exports = {
     markRead,
     digitsOnly,
     truncateText,
+    truncateBodyText,
     USE_INTERACTIVE,
 };
