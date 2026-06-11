@@ -15,6 +15,28 @@ function tapFooter(session, T) {
     return `0️⃣ ${T(session, 'home_type_zero')} · _${T(session, 'tap_powered_by')}_`;
 }
 
+/** First token of display name — e.g. "ERICK SALEHE" → "ERICK" */
+function waiterFirstName(fullName) {
+    if (!fullName || typeof fullName !== 'string') {
+        return null;
+    }
+
+    const first = fullName.trim().split(/\s+/)[0];
+
+    return first || null;
+}
+
+/** Home screen line: "waiter ERICK" / "mhudumu ERICK" */
+function formatWaiterHomeLine(session, T) {
+    const first = waiterFirstName(session.waiter_name);
+
+    if (!first) {
+        return null;
+    }
+
+    return T(session, 'home_waiter_line').replace('{name}', first);
+}
+
 function buildWelcomeBody(session, T) {
     const name = session.restaurant_name || 'Restaurant';
     const lines = [
@@ -23,8 +45,9 @@ function buildWelcomeBody(session, T) {
         TAP.divider,
     ];
 
-    if (session.waiter_name) {
-        lines.push(`🧑‍🍳 ${T(session, 'tap_waiter_label')}: *${session.waiter_name}*`);
+    const waiterLine = formatWaiterHomeLine(session, T);
+    if (waiterLine) {
+        lines.push(`🧑‍🍳 ${waiterLine}`);
     }
 
     if (session.table_number) {
@@ -50,12 +73,13 @@ function buildStartWelcome(T, session) {
 }
 
 function buildServiceSections(session, T) {
-    const waiterDesc = session.waiter_name || T(session, 'call_waiter_desc');
-    const tipDesc = session.waiter_name
-        ? T(session, 'tap_tip_waiter').replace('{name}', session.waiter_name)
+    const waiterShort = waiterFirstName(session.waiter_name) || session.waiter_name;
+    const waiterDesc = waiterShort || T(session, 'call_waiter_desc');
+    const tipDesc = waiterShort
+        ? T(session, 'tap_tip_waiter').replace('{name}', waiterShort)
         : T(session, 'tip_desc');
-    const rateDesc = session.waiter_name
-        ? T(session, 'tap_rate_waiter').replace('{name}', session.waiter_name)
+    const rateDesc = waiterShort
+        ? T(session, 'tap_rate_waiter').replace('{name}', waiterShort)
         : T(session, 'rate_desc');
 
     const foodRows = [
@@ -102,13 +126,13 @@ function buildServiceSections(session, T) {
 
 function buildHomeListBody(session, T) {
     const name = session.restaurant_name || 'Restaurant';
-    const info = session.header_info
-        || session.waiter_name
-        || (session.table_number ? `${T(session, 'table')} ${session.table_number}` : null);
+    const waiterLine = formatWaiterHomeLine(session, T);
 
     let body = `👋 ${T(session, 'home_welcome')} *${name}*`;
-    if (info) {
-        body += `\n🧑‍🍳 ${info}`;
+    if (waiterLine) {
+        body += `\n🧑‍🍳 ${waiterLine}`;
+    } else if (session.table_number) {
+        body += `\n🪑 ${T(session, 'table')} *${session.table_number}*`;
     }
     body += `\n\n${T(session, 'home_choose')}`;
 
@@ -116,7 +140,7 @@ function buildHomeListBody(session, T) {
 }
 
 function buildCallWaiterSent(session, T, displayName) {
-    const waiterName = session.waiter_name || displayName;
+    const waiterName = waiterFirstName(session.waiter_name) || session.waiter_name || displayName;
     return (
         `${TAP.divider}\n` +
         `🔔 *${T(session, 'call_waiter_arriving').replace('{name}', waiterName)}*\n` +
@@ -132,6 +156,8 @@ function buildLanguagePrompt(session, T) {
 module.exports = {
     TAP,
     tapFooter,
+    waiterFirstName,
+    formatWaiterHomeLine,
     buildWelcomeBody,
     buildHomeListBody,
     buildStartWelcome,

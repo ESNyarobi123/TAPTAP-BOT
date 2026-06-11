@@ -7,6 +7,7 @@ const L = {
   en: {
     // Home
     home_welcome: 'Welcome to',
+    home_waiter_line: 'waiter {name}',
     home_choose: 'Choose service:',
     home_type_zero: 'Type 0 anytime to go back here.',
     home_main_services: 'MAIN SERVICES',
@@ -139,6 +140,7 @@ const L = {
   },
   sw: {
     home_welcome: 'Karibu',
+    home_waiter_line: 'mhudumu {name}',
     home_choose: 'Chagua huduma:',
     home_type_zero: 'Andika 0 wakati wowote kurudi hapa.',
     home_main_services: 'HUDUMA ZA KUANZIA',

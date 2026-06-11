@@ -422,7 +422,7 @@ async function handleEntry(sock, from, session, text) {
             session.support_phone = result.data.support_phone || null;
             session.waiter_id = result.data.waiter_id;
             session.waiter_name = result.data.waiter_name;
-            session.header_info = result.data.waiter_name; // Set header for Home Screen
+            session.header_info = null;
 
             // Do not send standalone "Welcome to X! Y will be your waiter." — go straight to menu only.
             // (API may send skip_standalone_welcome; we always skip here so the first bubble never appears.)
