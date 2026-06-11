@@ -69,10 +69,10 @@ function normalizeSections(sections) {
         }
 
         if (rows.length > 0) {
-            normalized.push({
-                title: truncateText(section.title || 'Options', 24),
-                rows,
-            });
+            const title = section.title != null && String(section.title).length > 0
+                ? truncateText(section.title, 24)
+                : 'Options';
+            normalized.push({ title, rows });
         }
 
         if (totalRows >= 10) {

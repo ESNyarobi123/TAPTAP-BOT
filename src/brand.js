@@ -102,36 +102,23 @@ function buildServiceSections(session, T) {
         });
     }
 
-    const feedbackRows = [
-        { id: 'rate_service', title: `⭐ ${T(session, 'tap_rate_service')}`, description: rateDesc },
-    ];
-
-    const sections = [
-        { title: T(session, 'tap_section_food'), rows: foodRows },
-    ];
+    const allRows = [...foodRows];
 
     if (integratedPaymentsEnabled) {
-        sections.push({
-            title: T(session, 'tap_section_pay'),
-            rows: [
-                { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'tap_pay_methods') },
-                { id: 'give_tips', title: `💵 ${T(session, 'tip')}`, description: tipDesc },
-            ],
-        });
+        allRows.push(
+            { id: 'live_bill', title: `💳 ${T(session, 'pay_bill')}`, description: T(session, 'tap_pay_methods') },
+            { id: 'give_tips', title: `💵 ${T(session, 'tip')}`, description: tipDesc },
+        );
     }
 
-    sections.push(
-        { title: T(session, 'tap_section_feedback'), rows: feedbackRows },
-        {
-            title: T(session, 'tap_section_settings'),
-            rows: [
-                { id: 'change_language', title: `🌐 ${T(session, 'change_language')}`, description: T(session, 'change_language_desc') },
-                { id: 'exit_bot', title: `❌ ${T(session, 'tap_exit')}`, description: T(session, 'exit_desc') },
-            ],
-        },
+    allRows.push(
+        { id: 'rate_service', title: `⭐ ${T(session, 'tap_rate_service')}`, description: rateDesc },
+        { id: 'change_language', title: `🌐 ${T(session, 'change_language')}`, description: T(session, 'change_language_desc') },
+        { id: 'exit_bot', title: `❌ ${T(session, 'tap_exit')}`, description: T(session, 'exit_desc') },
     );
 
-    return sections;
+    // WhatsApp requires one list section; flat row list avoids category headers (Food, Feedback, etc.).
+    return [{ title: T(session, 'tap_list_flat_section'), rows: allRows }];
 }
 
 function buildHomeListBody(session, T) {
