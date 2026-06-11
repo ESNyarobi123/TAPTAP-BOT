@@ -241,15 +241,26 @@ module.exports = {
     callWaiter: async (data) => {
         const payload = {
             restaurant_id: data.restaurant_id,
-            type: data.request_type, // 'call_waiter' or 'request_bill'
-            table_number: data.table_number || ""
+            type: data.request_type,
+            table_number: data.table_number || '',
         };
 
-        if (data.waiter_id) payload.waiter_id = data.waiter_id;
-        if (data.table_id) payload.table_id = data.table_id;
+        if (data.waiter_id) {
+            payload.waiter_id = data.waiter_id;
+        }
+        if (data.table_id) {
+            payload.table_id = data.table_id;
+        }
 
-        const response = await api.post('/call-waiter', payload);
-        return response.data;
+        try {
+            const response = await api.post('/call-waiter', payload);
+            return response.data;
+        } catch (error) {
+            if (error.response && error.response.data) {
+                return error.response.data;
+            }
+            throw error;
+        }
     },
 
     /**

@@ -436,7 +436,7 @@ async function handleEntry(sock, from, session, text) {
             await showHomeScreen(sock, from, session);
 
         } else if (result.type === 'table') {
-            // Table QR — call waiter resolves from active order on this table
+            // Table QR — Call Waiter routes to any free online waiter
             session.restaurant_id = result.data.restaurant_id;
             session.restaurant_name = result.data.restaurant_name;
             session.support_phone = result.data.support_phone || null;
@@ -605,7 +605,7 @@ async function handleHomeState(sock, from, session, text) {
                 await showCallWaiterAskTable(sock, from, session);
             }
         } else if (session.table_number || session.table_id) {
-            await initiateTableOrderCallWaiter(sock, from, session);
+            await initiateCallWaiter(sock, from, session, 'call_waiter', 'Call Waiter');
         } else {
             await showWaitersList(sock, from, session);
         }
@@ -852,45 +852,8 @@ async function handleCallWaiterAskTableState(sock, from, session, text) {
     }
 }
 
-async function initiateTableOrderCallWaiter(sock, from, session) {
-    try {
-        const orderRes = await api.getActiveOrder(
-            session.restaurant_id,
-            session.table_number || null,
-            session.table_id || null,
-        );
-
-        if (!orderRes.success || !orderRes.order) {
-            await sendText(sock, from, `⚠️ ${T(session, 'call_waiter_no_order')}`);
-            await showHomeScreen(sock, from, session);
-            return;
-        }
-
-        if (!orderRes.order.waiter_id) {
-            await sendText(sock, from, `⚠️ ${T(session, 'call_waiter_no_order_waiter')}`);
-            await showHomeScreen(sock, from, session);
-            return;
-        }
-
-        const savedWaiterId = session.waiter_id;
-        const savedWaiterName = session.waiter_name;
-        session.waiter_id = orderRes.order.waiter_id;
-        session.waiter_name = orderRes.order.waiter_name;
-
-        await initiateCallWaiter(sock, from, session, 'call_waiter', 'Call Waiter');
-
-        session.waiter_id = savedWaiterId;
-        session.waiter_name = savedWaiterName;
-    } catch (e) {
-        console.error('Table order call waiter error:', e);
-        await sendText(sock, from, `❌ ${T(session, 'call_waiter_failed')}`);
-        await showHomeScreen(sock, from, session);
-    }
-}
-
 async function initiateCallWaiter(sock, from, session, apiType, displayName) {
     try {
-        // If customer has a specific waiter (from QR scan), check if they're online first
         if (session.waiter_id) {
             let statusRes;
             try {
@@ -910,13 +873,31 @@ async function initiateCallWaiter(sock, from, session, apiType, displayName) {
         const payload = {
             restaurant_id: session.restaurant_id,
             table_number: session.table_number || '',
-            waiter_id: session.waiter_id,
-            request_type: apiType
+            request_type: apiType,
         };
-        if (session.table_id) payload.table_id = session.table_id;
-        await api.callWaiter(payload);
+        if (session.waiter_id) {
+            payload.waiter_id = session.waiter_id;
+        }
+        if (session.table_id) {
+            payload.table_id = session.table_id;
+        }
 
-        await sendText(sock, from, buildCallWaiterSent(session, T, displayName));
+        const result = await api.callWaiter(payload);
+
+        if (!result.success) {
+            const message = String(result.message || '').toLowerCase().includes('free')
+                ? T(session, 'call_waiter_no_free')
+                : T(session, 'call_waiter_failed');
+            await sendText(sock, from, `⚠️ ${message}`);
+            await showHomeScreen(sock, from, session);
+            return;
+        }
+
+        const assignedName = result.data?.waiter_name
+            ? (waiterFirstName(result.data.waiter_name) || result.data.waiter_name)
+            : displayName;
+
+        await sendText(sock, from, buildCallWaiterSent(session, T, assignedName));
         await showHomeScreen(sock, from, session);
     } catch (e) {
         console.error('Call waiter error:', e);
