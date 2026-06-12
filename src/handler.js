@@ -37,7 +37,22 @@ async function handleMessage(message, contact) {
     const text = extractMessageText(message);
     if (text === null || text === '') return;
 
-    const session = await sessionStore.load(waId);
+    let session = await sessionStore.load(waId);
+
+    if (session._justExpired) {
+        const preservedLang = session.lang || 'en';
+        const preservedName = session.customer_name ?? null;
+        const restaurantName = session._expiredRestaurantName;
+
+        await sendSessionExpiredNotice(whatsapp, waId, preservedLang, restaurantName);
+
+        session = sessionStore.defaultSession();
+        session.lang = preservedLang;
+        if (preservedName) {
+            session.customer_name = preservedName;
+        }
+    }
+
     sessions[waId] = session;
 
     try {
@@ -45,6 +60,18 @@ async function handleMessage(message, contact) {
     } finally {
         await sessionStore.save(waId, session);
     }
+}
+
+async function sendSessionExpiredNotice(sock, waId, lang, restaurantName) {
+    const session = { lang: lang || 'en' };
+    const key = restaurantName ? 'session_expired' : 'session_expired_no_name';
+    let message = T(session, key);
+
+    if (restaurantName) {
+        message = message.replace(/{name}/g, restaurantName);
+    }
+
+    await sendText(sock, waId, message);
 }
 
 /**
@@ -581,7 +608,7 @@ async function handleHomeState(sock, from, session, text) {
         } else {
             await showWaiterTipList(sock, from, session);
         }
-    } else if (t === 'call_waiter' || t.includes('call')) {
+    } else if (t === 'call_waiter') {
         if (session.waiter_id) {
             // Waiter QR — call assigned waiter directly
             let statusRes;
@@ -804,10 +831,53 @@ async function handlePickTableForOrderState(sock, from, session, text) {
     }
 }
 
+const BOT_MENU_BUTTON_IDS = new Set([
+    'change_language', 'call_waiter', 'rate_service', 'view_menu', 'track_order',
+    'go_payment', 'pay_cash', 'give_tips', 'customer_support', 'exit_bot',
+    'home', 'home_more_1', 'home_more_2', 'home_back_main', 'call_only',
+    'request_bill', 'list_waiters', 'lang_en', 'lang_sw', 'search_food',
+]);
+
+function isBotMenuButtonId(text) {
+    const t = String(text || '').trim().toLowerCase();
+    if (!t) {
+        return true;
+    }
+    if (BOT_MENU_BUTTON_IDS.has(t)) {
+        return true;
+    }
+    if (t.startsWith('lang_') || t.startsWith('rate_') || t.startsWith('call_waiter_')) {
+        return true;
+    }
+    if (t.includes('_') && !/^\d+$/.test(t)) {
+        return true;
+    }
+    return false;
+}
+
+function sanitizeSessionTableNumber(session) {
+    if (isBotMenuButtonId(session.table_number)) {
+        session.table_number = null;
+    }
+}
+
+function isValidManualTableInput(text) {
+    const trimmed = String(text || '').trim();
+    if (!trimmed || trimmed.length > 20) {
+        return false;
+    }
+    return !isBotMenuButtonId(trimmed);
+}
+
 async function handleCallWaiterAskTableState(sock, from, session, text) {
     if (text === 'home') {
         session.state = 'HOME';
         await showHomeScreen(sock, from, session);
+        return;
+    }
+    if (text === 'change_language' || String(text).toLowerCase().includes('language')) {
+        session.state = 'HOME';
+        await showLanguageSelect(sock, from, session);
         return;
     }
     let tableNumber = null;
@@ -836,9 +906,8 @@ async function handleCallWaiterAskTableState(sock, from, session, text) {
         session.state = 'HOME';
         await initiateCallWaiter(sock, from, session, apiType, label);
     } else {
-        // Accept any table number as free text (e.g. "5") so waiter sees "Table 5" even if not in manager list
         const trimmed = String(text).trim();
-        if (trimmed.length > 0 && trimmed.length <= 20) {
+        if (isValidManualTableInput(trimmed)) {
             session.table_number = trimmed;
             session.table_id = null;
             const apiType = session.pending_call_type || 'call_waiter';
@@ -854,6 +923,7 @@ async function handleCallWaiterAskTableState(sock, from, session, text) {
 
 async function initiateCallWaiter(sock, from, session, apiType, displayName) {
     try {
+        sanitizeSessionTableNumber(session);
         if (session.waiter_id) {
             let statusRes;
             try {

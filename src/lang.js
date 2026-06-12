@@ -73,6 +73,8 @@ const L = {
     // General
     table: 'Table',
     goodbye: 'Goodbye! Thank you for visiting us.',
+    session_expired: 'Your *{name}* session has expired due to inactivity.\n\nThank you for visiting us!',
+    session_expired_no_name: 'Your session has expired due to inactivity.\n\nThank you for visiting us!',
     processing_order: 'Processing your order...',
     order_received: 'Order Received!',
     order_id: 'Order #',
@@ -207,6 +209,8 @@ const L = {
     choose: 'Chagua:',
     table: 'Meza',
     goodbye: 'Kwaheri! Asante kwa kutembelea.',
+    session_expired: 'Kipindi chako cha *{name}* kimeisha kwa kutokuwa na shughuli.\n\nAsante kwa kutembelea!',
+    session_expired_no_name: 'Kipindi chako kimeisha kwa kutokuwa na shughuli.\n\nAsante kwa kutembelea!',
     processing_order: 'Inachakata maagizo yako...',
     order_received: 'Agizo Limepokelewa!',
     order_id: 'Agizo #',

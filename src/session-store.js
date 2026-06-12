@@ -1,14 +1,9 @@
 /**
  * Persistent session storage backed by Laravel's `/api/bot/session` endpoint.
  *
- * The previous Baileys bot stored conversation state in a process-local
- * `sessions[from]` map; restarting the bot wiped every customer's cart and
- * current screen. We now hydrate from MySQL at the start of each message and
- * write back when the handler is done.
- *
- * To avoid touching every line in handler.js that does `sessions[from].xxx`
- * synchronously, we keep an in-memory cache and treat the API as a
- * write-through layer.
+ * Hydrates from MySQL at the start of each message and write-through on save.
+ * Idle sessions (no chat for BOT_SESSION_IDLE_HOURS on Laravel) are cleared by
+ * the API and flagged so the bot can notify the customer.
  */
 
 const axios = require('axios');
@@ -62,38 +57,57 @@ function defaultSession() {
 }
 
 /**
- * Load session for a WhatsApp id. Falls back to in-memory cache on API failure
- * so a temporary backend hiccup does not kill an active conversation.
+ * Load session for a WhatsApp id. Always hits the API so idle expiry is accurate.
  */
 async function load(waId) {
-    if (cache.has(waId)) {
-        return cache.get(waId);
-    }
-
     try {
         const { data } = await api.get('/session', { params: { wa_id: waId } });
+
+        if (data?.expired) {
+            cache.delete(waId);
+
+            return {
+                ...defaultSession(),
+                lang: data.lang || 'en',
+                _justExpired: true,
+                _expiredRestaurantName: data.expired_restaurant_name || null,
+            };
+        }
+
         const remote = data?.data || {};
         const session = {
             ...defaultSession(),
             ...(remote.data || {}),
             state: remote.state || 'START',
             lang: remote.lang || 'en',
+            _lastMessageAt: remote.last_message_at || null,
         };
         cache.set(waId, session);
+
         return session;
     } catch (error) {
-        console.error('Session load failed, using fresh defaults:', error.response?.data || error.message);
+        console.error('Session load failed, using cache or fresh defaults:', error.response?.data || error.message);
+
+        if (cache.has(waId)) {
+            return cache.get(waId);
+        }
+
         const session = defaultSession();
         cache.set(waId, session);
+
         return session;
     }
 }
 
 async function save(waId, session) {
-    if (!session) return;
+    if (!session || session._justExpired) {
+        return;
+    }
+
     cache.set(waId, session);
 
-    const { state, lang, ...rest } = session;
+    const { state, lang, _lastMessageAt, _justExpired, _expiredRestaurantName, ...rest } = session;
+
     try {
         await api.put('/session', {
             wa_id: waId,
@@ -101,6 +115,7 @@ async function save(waId, session) {
             lang: lang || 'en',
             data: rest,
         });
+        session._lastMessageAt = new Date().toISOString();
     } catch (error) {
         console.error('Session save failed:', error.response?.data || error.message);
     }
@@ -108,6 +123,7 @@ async function save(waId, session) {
 
 async function clear(waId) {
     cache.delete(waId);
+
     try {
         await api.delete('/session', { params: { wa_id: waId } });
     } catch (error) {
