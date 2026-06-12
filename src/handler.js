@@ -13,7 +13,7 @@ const {
     waiterFirstName,
 } = require('./brand');
 const { isEntryCode, shouldOfferWelcome } = require('./greetings');
-const { integratedPaymentsEnabled } = require('./features');
+const { integratedPaymentsEnabled, botOrderEnabled, BOT_ORDER_DISABLED_STATES } = require('./features');
 
 /**
  * Process-local cache of the active session for each WhatsApp id.
@@ -152,6 +152,15 @@ async function processMessage(from, session, initialText, contact, _message) {
     // ═══════════════════════════════════════════════════════════════
     // STATE MACHINE
     // ═══════════════════════════════════════════════════════════════
+    if (!botOrderEnabled && BOT_ORDER_DISABLED_STATES.has(session.state)) {
+        delete session.pending_order_text;
+        session.pending_order_lines = null;
+        delete session.pending_table_for;
+        delete session.order_tables;
+        await showHomeScreen(sock, from, session);
+        return;
+    }
+
     try {
         switch (session.state) {
             case 'START':
@@ -2197,6 +2206,11 @@ async function handleSearchRestaurant(sock, from, session, query) {
 }
 
 async function showMenuSelection(sock, from, session) {
+    if (!botOrderEnabled) {
+        await showMenuImage(sock, from, session);
+        return;
+    }
+
     session.state = 'MENU_SELECTION';
     await sendButtons(sock, from, 'Which menu would you like to see?', [
         { id: 'menu_image', text: '🖼️ Menu Image' },
@@ -2218,16 +2232,19 @@ async function handleMenuSelectionState(sock, from, session, text) {
 }
 
 async function showMenuImage(sock, from, session) {
-    session.state = 'MENU_IMAGE_ORDER';
-
     const result = await api.getMenuPdf(session.restaurant_id);
     const pdfUrl = result.success ? result.data?.menu_pdf_url : null;
     const fileName = result.data?.filename || 'menu.pdf';
 
     if (pdfUrl) {
-        const cmdZero = T(session, 'menu_cmd_zero');
-        const cmdOrder = T(session, 'menu_cmd_order');
-        const caption = `👆 ${T(session, 'here_is_menu')}\n\n*${T(session, 'menu_commands')}*\n• ${cmdZero}\n• ${cmdOrder}`;
+        const caption = botOrderEnabled
+            ? (() => {
+                const cmdZero = T(session, 'menu_cmd_zero');
+                const cmdOrder = T(session, 'menu_cmd_order');
+                return `👆 ${T(session, 'here_is_menu')}\n\n*${T(session, 'menu_commands')}*\n• ${cmdZero}\n• ${cmdOrder}`;
+            })()
+            : `👆 ${T(session, 'here_is_menu')}`;
+
         try {
             await sock.sendMessage(from, {
                 document: { url: pdfUrl, fileName },
@@ -2237,14 +2254,27 @@ async function showMenuImage(sock, from, session) {
         } catch (e) {
             await sendText(sock, from, caption);
         }
-    } else {
-        await sendText(sock, from, `❌ ${T(session, 'menu_not_available')}`);
-        session.state = 'HOME';
-        await showHomeScreen(sock, from, session);
+
+        if (!botOrderEnabled) {
+            await showHomeScreen(sock, from, session);
+            return;
+        }
+
+        session.state = 'MENU_IMAGE_ORDER';
+        return;
     }
+
+    await sendText(sock, from, `❌ ${T(session, 'menu_not_available')}`);
+    session.state = 'HOME';
+    await showHomeScreen(sock, from, session);
 }
 
 async function handleMenuImageOrderState(sock, from, session, text) {
+    if (!botOrderEnabled) {
+        await showHomeScreen(sock, from, session);
+        return;
+    }
+
     // 0 or home = back to main menu (0 is also handled globally)
     if (text === 'home' || text === '0') {
         await showHomeScreen(sock, from, session);

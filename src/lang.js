@@ -13,7 +13,7 @@ const L = {
     home_main_services: 'MAIN SERVICES',
     // Menu items
     menu_view: 'View Our Menu',
-    menu_view_desc: 'View menu and order',
+    menu_view_desc: 'View menu PDF',
     rate_service: 'Rate Service',
     rate_desc: 'Give feedback',
     pay_bill: 'Pay Bill',
@@ -154,7 +154,7 @@ const L = {
     home_type_zero: 'Andika 0 wakati wowote kurudi hapa.',
     home_main_services: 'HUDUMA ZA KUANZIA',
     menu_view: 'Tazama Menu',
-    menu_view_desc: 'Tazama menu na kuagiza',
+    menu_view_desc: 'Tazama menu PDF',
     rate_service: 'Kadiria Huduma',
     rate_desc: 'Toa maoni',
     pay_bill: 'Lipa Bili',
